@@ -1,4 +1,4 @@
-package com.example.barebrowser
+package io.github.sarraf5757.barebrowser
 
 import android.app.Application
 import android.content.Context
@@ -6,10 +6,24 @@ import androidx.lifecycle.AndroidViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
 import java.net.URLEncoder
+import java.util.UUID
+
+/**
+ * Data model for a Browser Tab.
+ * Simplified and consolidated into the same file as ViewModel for clarity in this small project.
+ */
+@Serializable
+data class Tab(
+    val id: String = UUID.randomUUID().toString(),
+    val url: String = "about:blank",
+    val isPinned: Boolean = false,
+    val lastAccessed: Long = System.currentTimeMillis()
+)
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("bare_browser_prefs", Context.MODE_PRIVATE)
@@ -32,7 +46,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             emptyList()
         }
         
-        val currId = prefs.getString("currentTabId", null)
+        val savedCurrentId = prefs.getString("currentTabId", null)
         
         if (loadedTabs.isEmpty()) {
             val initialTab = Tab()
@@ -40,7 +54,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _currentTabId.value = initialTab.id
         } else {
             _tabs.value = loadedTabs
-            _currentTabId.value = currId ?: loadedTabs.firstOrNull()?.id
+            _currentTabId.value = savedCurrentId ?: loadedTabs.firstOrNull()?.id
         }
     }
     
@@ -62,18 +76,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun closeTab(tabId: String) {
         val currentTabs = _tabs.value
         val tabToClose = currentTabs.find { it.id == tabId }
-        if (tabToClose?.isPinned == true) return // Cannot close pinned tabs
         
-        val newTabs = currentTabs.filter { it.id != tabId }
+        // Safety check: Don't close if it's pinned
+        if (tabToClose?.isPinned == true) return 
         
-        if (newTabs.isEmpty()) {
+        val remainingTabs = currentTabs.filter { it.id != tabId }
+        
+        if (remainingTabs.isEmpty()) {
+            // Always keep at least one tab open
             val fallbackTab = Tab()
             _tabs.value = listOf(fallbackTab)
             _currentTabId.value = fallbackTab.id
         } else {
-            _tabs.value = newTabs
+            _tabs.value = remainingTabs
+            // If the closed tab was the active one, switch to another
             if (_currentTabId.value == tabId) {
-                _currentTabId.value = newTabs.last().id
+                _currentTabId.value = remainingTabs.last().id
             }
         }
         saveTabs()
@@ -81,11 +99,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     
     fun selectTab(tabId: String) {
         val currentTabs = _tabs.value
-        val tab = currentTabs.find { it.id == tabId }
-        if (tab != null) {
-            val updatedTabs = currentTabs.map {
-                if (it.id == tabId) it.copy(lastAccessed = System.currentTimeMillis())
-                else it
+        val foundTab = currentTabs.find { it.id == tabId }
+        
+        if (foundTab != null) {
+            val updatedTabs = currentTabs.map { tab ->
+                if (tab.id == tabId) {
+                    tab.copy(lastAccessed = System.currentTimeMillis())
+                } else {
+                    tab
+                }
             }
             _tabs.value = updatedTabs
             _currentTabId.value = tabId
@@ -94,34 +116,45 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     fun togglePin(tabId: String) {
-        _tabs.value = _tabs.value.map {
-            if (it.id == tabId) it.copy(isPinned = !it.isPinned)
-            else it
+        _tabs.value = _tabs.value.map { tab ->
+            if (tab.id == tabId) {
+                tab.copy(isPinned = !tab.isPinned)
+            } else {
+                tab
+            }
         }
         saveTabs()
     }
     
     fun updateTabUrl(tabId: String, newUrl: String) {
-        _tabs.value = _tabs.value.map {
-            if (it.id == tabId) it.copy(url = newUrl)
-            else it
+        _tabs.value = _tabs.value.map { tab ->
+            if (tab.id == tabId) {
+                tab.copy(url = newUrl)
+            } else {
+                tab
+            }
         }
         saveTabs()
     }
     
     fun handleSearchOrUrl(tabId: String, query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isEmpty()) return
+        val trimmedInput = query.trim()
+        if (trimmedInput.isEmpty()) return
         
-        val url = if (trimmed.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))) {
-            if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-                "https://$trimmed"
+        // Simplified URL detection: checks for a dot and no spaces, or starts with http
+        val isUrl = trimmedInput.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))
+        
+        val finalUrl = if (isUrl) {
+            if (!trimmedInput.startsWith("http://") && !trimmedInput.startsWith("https://")) {
+                "https://$trimmedInput"
             } else {
-                trimmed
+                trimmedInput
             }
         } else {
-            "https://www.google.com/search?q=${URLEncoder.encode(trimmed, "UTF-8")}"
+            // Google search fallback
+            "https://www.google.com/search?q=${URLEncoder.encode(trimmedInput, "UTF-8")}"
         }
-        updateTabUrl(tabId, url)
+        
+        updateTabUrl(tabId, finalUrl)
     }
 }

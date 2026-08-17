@@ -1,4 +1,4 @@
-package com.example.barebrowser
+package io.github.sarraf5757.barebrowser.ui
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
@@ -7,55 +7,50 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.sarraf5757.barebrowser.BrowserViewModel
+import io.github.sarraf5757.barebrowser.Tab
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Main screen for the browser, coordinating the WebView, the URL bar, and the Tab View.
+ */
 @Composable
 fun BrowserScreen(viewModel: BrowserViewModel) {
+    // Collecting state from ViewModel
     val tabs by viewModel.tabs.collectAsState()
     val currentTabId by viewModel.currentTabId.collectAsState()
     
     val currentTab = tabs.find { it.id == currentTabId }
     var isTabViewVisible by remember { mutableStateOf(false) }
 
+    // Intercept back button to close tab view if it's open
     BackHandler(enabled = isTabViewVisible) {
         isTabViewVisible = false
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // WebView layer
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. WebView Layer
         if (currentTab != null) {
             WebViewContainer(
                 url = currentTab.url,
@@ -63,26 +58,24 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 modifier = Modifier.fillMaxSize()
             )
             
-            // Blank screen Material You background
+            // Overlay a themed background when the page is blank
             if (currentTab.url == "about:blank") {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        // You could add a logo or something here if desired
-                    }
+                    // Placeholder for a logo or welcome message
                 }
             }
         }
         
-        // Floating URL Bar Layer
+        // 2. Floating URL Bar Layer (Bottom)
         if (!isTabViewVisible && currentTab != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .imePadding()
-                    .navigationBarsPadding()
+                    .imePadding() // Pushes bar up when keyboard is visible
+                    .navigationBarsPadding() // Avoids overlap with system nav bar
                     .padding(bottom = 16.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
@@ -95,7 +88,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             }
         }
 
-        // Tab View Layer
+        // 3. Tab Grid Overlay Layer
         AnimatedVisibility(
             visible = isTabViewVisible,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -126,12 +119,12 @@ fun WebViewContainer(
     onUrlUpdate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     
-    // We update the URL if the state URL differs from the webview's URL
+    // Update WebView URL whenever the state URL changes
     LaunchedEffect(url) {
-        if (webView?.url != url && webView?.url != "$url/") {
-            webView?.loadUrl(url)
+        if (webViewInstance?.url != url && webViewInstance?.url != "$url/") {
+            webViewInstance?.loadUrl(url)
         }
     }
 
@@ -142,7 +135,9 @@ fun WebViewContainer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                // Set transparent so the Material You themed background shows through
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 
@@ -156,8 +151,13 @@ fun WebViewContainer(
                 }
                 webChromeClient = WebChromeClient()
                 loadUrl(url)
-                webView = this
+                webViewInstance = this
             }
+        },
+        update = { /* Updates are handled via LaunchedEffect for cleaner logic */ },
+        onRelease = { webView ->
+            webView.stopLoading()
+            webView.destroy()
         },
         modifier = modifier
     )
@@ -170,7 +170,7 @@ fun UrlBar(
     onNewTab: () -> Unit,
     onSwipeUp: () -> Unit
 ) {
-    var text by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var textInput by remember(currentUrl) { mutableStateOf(currentUrl) }
     val focusManager = LocalFocusManager.current
 
     Row(
@@ -180,7 +180,7 @@ fun UrlBar(
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
     ) {
-        // Add Tab Button - Material You Style
+        // Add Tab Button - Material You secondary style
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.secondaryContainer,
@@ -189,21 +189,21 @@ fun UrlBar(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    Icons.Default.Add,
+                    imageVector = Icons.Default.Add,
                     contentDescription = "New Tab",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
 
-        // Search Bar Container
+        // Search Bar - Material You variant style
         Surface(
             modifier = Modifier
                 .weight(1f)
                 .pointerInput(Unit) {
                     detectVerticalDragGestures { _, dragAmount ->
                         if (dragAmount < -20f) {
-                            onSwipeUp()
+                            onSwipeUp() // Swipe up to see all tabs
                         }
                     }
                 },
@@ -212,8 +212,8 @@ fun UrlBar(
             tonalElevation = 4.dp
         ) {
             TextField(
-                value = text,
-                onValueChange = { text = it },
+                value = textInput,
+                onValueChange = { textInput = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Search or type URL") },
                 singleLine = true,
@@ -221,16 +221,16 @@ fun UrlBar(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
                     onSearch = {
-                        onSearch(text)
+                        onSearch(textInput)
                         focusManager.clearFocus()
                     }
                 ),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
                 ),
                 shape = RoundedCornerShape(28.dp)
             )
@@ -248,7 +248,7 @@ fun TabView(
     onTabPinned: (String) -> Unit,
     onNewTab: () -> Unit
 ) {
-    val sortedTabs = tabs.sortedBy { it.lastAccessed } // Most recent at bottom
+    val sortedTabs = tabs.sortedBy { it.lastAccessed } 
     
     Box(
         modifier = Modifier
@@ -257,14 +257,15 @@ fun TabView(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Bottom // Anchors to bottom
+            verticalArrangement = Arrangement.Bottom 
         ) {
+            // Tab Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f, fill = false) // Allows it to size to content but align bottom
+                modifier = Modifier.weight(1f, fill = false) 
             ) {
                 items(sortedTabs, key = { it.id }) { tab ->
                     TabCard(
@@ -277,7 +278,7 @@ fun TabView(
                 }
             }
             
-            // Bottom bar with New Tab button
+            // Bottom bar with Add Tab button in Tab View
             Surface(
                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -333,64 +334,63 @@ fun TabCard(
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
-        },
-        content = {
-            Card(
-                onClick = onClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.7f),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
-                                     else MaterialTheme.colorScheme.surfaceVariant
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+        }
+    ) {
+        Card(
+            onClick = onClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.7f),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
+                                 else MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = tab.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onPin,
+                        modifier = Modifier.size(24.dp)
                     ) {
-                        Text(
-                            text = tab.url,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = onPin,
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                if (tab.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = "Pin Tab",
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                    
-                    // Tab preview could go here. For now, just a placeholder.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = tab.url,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 3,
-                            color = MaterialTheme.colorScheme.onBackground
+                        Icon(
+                            imageVector = if (tab.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = "Pin Tab",
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
+                
+                // Content area (placeholder for preview)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = tab.url,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 3,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
             }
         }
-    )
+    }
 }
