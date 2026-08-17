@@ -1,4 +1,4 @@
-package com.barebrowser.app.ui.theme
+package com.example.barebrowser.theme
 
 import androidx.compose.ui.graphics.Color
 
