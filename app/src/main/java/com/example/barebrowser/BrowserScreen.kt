@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,6 +62,18 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 onUrlUpdate = { newUrl -> viewModel.updateTabUrl(currentTab.id, newUrl) },
                 modifier = Modifier.fillMaxSize()
             )
+            
+            // Blank screen Material You background
+            if (currentTab.url == "about:blank") {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        // You could add a logo or something here if desired
+                    }
+                }
+            }
         }
         
         // Floating URL Bar Layer
@@ -68,11 +81,13 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 24.dp),
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 UrlBar(
-                    currentUrl = currentTab.url,
+                    currentUrl = if (currentTab.url == "about:blank") "" else currentTab.url,
                     onSearch = { query -> viewModel.handleSearchOrUrl(currentTab.id, query) },
                     onNewTab = { viewModel.createNewTab() },
                     onSwipeUp = { isTabViewVisible = true }
@@ -127,6 +142,7 @@ fun WebViewContainer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 
@@ -157,52 +173,67 @@ fun UrlBar(
     var text by remember(currentUrl) { mutableStateOf(currentUrl) }
     val focusManager = LocalFocusManager.current
 
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        shadowElevation = 8.dp,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .pointerInput(Unit) {
-                detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -20f) {
-                        onSwipeUp()
-                    }
-                }
-            }
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        // Add Tab Button - Material You Style
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            onClick = onNewTab,
+            modifier = Modifier.size(56.dp)
         ) {
-            IconButton(onClick = onNewTab) {
-                Icon(Icons.Default.Add, contentDescription = "New Tab")
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "New Tab",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             }
-            
+        }
+
+        // Search Bar Container
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { _, dragAmount ->
+                        if (dragAmount < -20f) {
+                            onSwipeUp()
+                        }
+                    }
+                },
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 4.dp
+        ) {
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                modifier = Modifier.weight(1f),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search or type URL") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
-                    onGo = {
+                    onSearch = {
                         onSearch(text)
                         focusManager.clearFocus()
                     }
                 ),
-                singleLine = true
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                ),
+                shape = RoundedCornerShape(28.dp)
             )
-            
-            // Placeholder for future history button
-            Spacer(modifier = Modifier.width(48.dp))
         }
     }
 }

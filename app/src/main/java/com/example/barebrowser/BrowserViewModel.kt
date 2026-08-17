@@ -111,6 +111,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     
     fun handleSearchOrUrl(tabId: String, query: String) {
         val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        
         val url = if (trimmed.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))) {
             if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
                 "https://$trimmed"

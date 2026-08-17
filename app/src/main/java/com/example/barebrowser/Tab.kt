@@ -6,7 +6,7 @@ import java.util.UUID
 @Serializable
 data class Tab(
     val id: String = UUID.randomUUID().toString(),
-    val url: String = "https://www.google.com",
+    val url: String = "about:blank",
     val isPinned: Boolean = false,
     val lastAccessed: Long = System.currentTimeMillis()
 )

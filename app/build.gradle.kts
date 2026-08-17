@@ -8,8 +8,8 @@ android {
     namespace = "com.example.barebrowser"
     compileSdk = 37
     defaultConfig {
-        applicationId = "com.example.barebrowser"
-        minSdk = 37
+        applicationId = "io.github.sarraf5757.barebrowser"
+        minSdk = 30
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
@@ -40,7 +40,7 @@ android {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(17)
 }
 
 dependencies {
