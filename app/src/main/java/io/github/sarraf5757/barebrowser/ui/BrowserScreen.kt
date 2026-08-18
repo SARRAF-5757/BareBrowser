@@ -59,11 +59,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         // 1. WebView Layer
         if (currentTab != null) {
             WebViewContainer(
-                url = currentTab.url,
+                tabs = tabs,
+                currentTabId = currentTabId,
                 isTabViewVisible = isTabViewVisible,
-                onUrlUpdate = { newUrl -> viewModel.updateTabUrl(currentTab.id, newUrl) },
+                onUrlUpdate = { tabId, newUrl -> viewModel.updateTabUrl(tabId, newUrl) },
                 onThemeColorUpdate = { color -> themeColor = color },
-                onThumbnailCaptured = { thumb -> viewModel.updateThumbnail(currentTab.id, thumb) },
+                onThumbnailCaptured = { tabId, thumb -> viewModel.updateThumbnail(tabId, thumb) },
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
@@ -137,14 +138,14 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebViewContainer(
-    url: String,
+    tabs: List<io.github.sarraf5757.barebrowser.Tab>,
+    currentTabId: String?,
     isTabViewVisible: Boolean,
-    onUrlUpdate: (String) -> Unit,
+    onUrlUpdate: (String, String) -> Unit,
     onThemeColorUpdate: (Color?) -> Unit,
-    onThumbnailCaptured: (String) -> Unit,
+    onThumbnailCaptured: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     val haptic = LocalHapticFeedback.current
@@ -155,10 +156,16 @@ fun WebViewContainer(
     val currentOnPageFinished by rememberUpdatedState {
         isRefreshing = false
     }
+    
+    // We hold a reference to the FrameLayout to query the active WebView
+    var frameLayoutRef by remember { mutableStateOf<android.widget.FrameLayout?>(null) }
 
     val currentOnRefresh by rememberUpdatedState {
         isRefreshing = true
-        webViewInstance?.reload()
+        if (currentTabId != null) {
+            val activeWebView = frameLayoutRef?.findViewWithTag<NestedScrollWebView>(currentTabId)
+            activeWebView?.reload()
+        }
     }
 
     LaunchedEffect(pullRefreshState.distanceFraction) {
@@ -177,18 +184,12 @@ fun WebViewContainer(
         }
     }
     
-    // Update WebView URL whenever the state URL changes
-    LaunchedEffect(url) {
-        if (webViewInstance?.url != url && webViewInstance?.url != "$url/") {
-            webViewInstance?.loadUrl(url)
-        }
-    }
-    
     LaunchedEffect(isTabViewVisible) {
-        if (isTabViewVisible) {
-            val thumb = captureWebViewToThumbnail(webViewInstance)
+        if (isTabViewVisible && currentTabId != null) {
+            val activeWebView = frameLayoutRef?.findViewWithTag<NestedScrollWebView>(currentTabId)
+            val thumb = captureWebViewToThumbnail(activeWebView)
             if (thumb != null) {
-                onThumbnailCaptured(thumb)
+                onThumbnailCaptured(currentTabId, thumb)
             }
         }
     }
@@ -203,56 +204,125 @@ fun WebViewContainer(
     ) {
         AndroidView(
             factory = { context ->
-                NestedScrollWebView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                // Set transparent so the Material You themed background shows through
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                
-                webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                        super.onPageStarted(view, url, favicon)
-                        if (url != null) {
-                            currentOnUrlUpdate(url)
-                        }
-                    }
+                android.widget.FrameLayout(context).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    frameLayoutRef = this
+                }
+            },
+            update = { frameLayout ->
+                val existingTags = mutableSetOf<String>()
+                for (i in 0 until frameLayout.childCount) {
+                    val child = frameLayout.getChildAt(i)
+                    existingTags.add(child.tag as String)
+                }
 
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        currentOnPageFinished()
-                        val jsToInject = """
-                            (function() {
-                                var meta = document.querySelector('meta[name="theme-color"]');
-                                if (meta) return meta.content;
-                                var bgColor = window.getComputedStyle(document.body).backgroundColor;
-                                if (bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
-                                    return window.getComputedStyle(document.documentElement).backgroundColor;
+                // Create new WebViews for any tabs that don't have one
+                for (tab in tabs) {
+                    if (!existingTags.contains(tab.id)) {
+                        val webView = NestedScrollWebView(frameLayout.context).apply {
+                            tag = tab.id
+                            layoutParams = android.widget.FrameLayout.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            
+                            // Enable Cookies
+                            android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+                            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                            
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    if (url != null) {
+                                        currentOnUrlUpdate(tab.id, url)
+                                    }
                                 }
-                                return bgColor;
-                            })();
-                        """.trimIndent()
-                        view?.evaluateJavascript(jsToInject) { result ->
-                            currentOnThemeColorUpdate(parseColorString(result))
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    // Flush cookies
+                                    android.webkit.CookieManager.getInstance().flush()
+                                    if (tab.id == currentTabId) {
+                                        currentOnPageFinished()
+                                    }
+                                    val jsToInject = """
+                                        (function() {
+                                            var meta = document.querySelector('meta[name="theme-color"]');
+                                            if (meta) return meta.content;
+                                            var bgColor = window.getComputedStyle(document.body).backgroundColor;
+                                            if (bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                                                return window.getComputedStyle(document.documentElement).backgroundColor;
+                                            }
+                                            return bgColor;
+                                        })();
+                                    """.trimIndent()
+                                    view?.evaluateJavascript(jsToInject) { result ->
+                                        if (tab.id == currentTabId) {
+                                            currentOnThemeColorUpdate(parseColorString(result))
+                                        }
+                                    }
+                                }
+                            }
+                            webChromeClient = WebChromeClient()
+                            loadUrl(tab.url)
+                        }
+                        frameLayout.addView(webView)
+                    }
+                }
+
+                // Remove WebViews for tabs that were closed
+                val currentTabIds = tabs.map { it.id }.toSet()
+                for (i in frameLayout.childCount - 1 downTo 0) {
+                    val child = frameLayout.getChildAt(i)
+                    val tabId = child.tag as String
+                    if (!currentTabIds.contains(tabId)) {
+                        (child as? WebView)?.let {
+                            it.stopLoading()
+                            it.destroy()
+                        }
+                        frameLayout.removeViewAt(i)
+                    }
+                }
+
+                // Update visibility and URL loading if URL changed externally
+                for (i in 0 until frameLayout.childCount) {
+                    val child = frameLayout.getChildAt(i) as NestedScrollWebView
+                    val tabId = child.tag as String
+                    val tab = tabs.find { it.id == tabId }
+                    
+                    if (tab != null) {
+                        // Check if URL changed externally (e.g. from URL bar search)
+                        if (child.url != tab.url && child.url != "${tab.url}/") {
+                            child.loadUrl(tab.url)
+                        }
+                        
+                        if (tabId == currentTabId) {
+                            child.visibility = android.view.View.VISIBLE
+                        } else {
+                            child.visibility = android.view.View.GONE
                         }
                     }
                 }
-                webChromeClient = WebChromeClient()
-                loadUrl(url)
-                webViewInstance = this
-            }
-        },
-        update = { /* Updates are handled via LaunchedEffect for cleaner logic */ },
-        onRelease = { webView ->
-            webView.stopLoading()
-            webView.destroy()
-        },
-        modifier = Modifier.fillMaxSize()
-    )
+            },
+            onRelease = { frameLayout ->
+                for (i in 0 until frameLayout.childCount) {
+                    val child = frameLayout.getChildAt(i)
+                    (child as? WebView)?.let {
+                        it.stopLoading()
+                        it.destroy()
+                    }
+                }
+                frameLayout.removeAllViews()
+            },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
