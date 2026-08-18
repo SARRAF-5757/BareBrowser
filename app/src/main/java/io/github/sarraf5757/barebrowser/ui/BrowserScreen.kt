@@ -227,6 +227,7 @@ fun UrlBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .padding(horizontal = 16.dp)
     ) {
         // Add Tab Button - Material You secondary style
@@ -234,7 +235,7 @@ fun UrlBar(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.secondaryContainer,
             onClick = onNewTab,
-            modifier = Modifier.size(56.dp)
+            modifier = Modifier.fillMaxHeight().aspectRatio(1f) // Ensure it stays perfectly square while filling height
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -263,7 +264,7 @@ fun UrlBar(
             TextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 placeholder = { Text("Search or type URL") },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
