@@ -300,12 +300,12 @@ fun TabView(
 ) {
     val gridState = rememberLazyGridState()
     val dragDropState = rememberDragDropState(gridState = gridState, onMove = onTabMoved)
+    val view = androidx.compose.ui.platform.LocalView.current
     
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
-            .dragContainer(dragDropState)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -320,13 +320,14 @@ fun TabView(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.weight(1f, fill = false) 
             ) {
-                items(tabs, key = { it.id }) { tab ->
+                itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
                     TabCard(
                         tab = tab,
                         isSelected = tab.id == currentTabId,
                         onClick = { onTabSelected(tab.id) },
                         onClose = { onTabClosed(tab.id) },
-                        onPin = { onTabPinned(tab.id) }
+                        onPin = { onTabPinned(tab.id) },
+                        modifier = Modifier.dragItem(dragDropState, index, view)
                     )
                 }
             }
@@ -356,7 +357,8 @@ fun TabCard(
     isSelected: Boolean,
     onClick: () -> Unit,
     onClose: () -> Unit,
-    onPin: () -> Unit
+    onPin: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
@@ -373,6 +375,7 @@ fun TabCard(
         state = dismissState,
         enableDismissFromStartToEnd = !tab.isPinned,
         enableDismissFromEndToStart = !tab.isPinned,
+        modifier = modifier,
         backgroundContent = {
             Box(
                 modifier = Modifier
