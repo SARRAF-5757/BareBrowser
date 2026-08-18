@@ -1,5 +1,10 @@
 package io.github.sarraf5757.barebrowser.ui
 
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.view.ViewGroup
@@ -128,6 +133,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebViewContainer(
@@ -139,9 +145,37 @@ fun WebViewContainer(
     modifier: Modifier = Modifier
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+    val haptic = LocalHapticFeedback.current
+    var hasVibrated by remember { mutableStateOf(false) }
+
     val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
+    val currentOnPageFinished by rememberUpdatedState {
+        isRefreshing = false
+    }
+
+    val currentOnRefresh by rememberUpdatedState {
+        isRefreshing = true
+        webViewInstance?.reload()
+    }
+
+    LaunchedEffect(pullRefreshState.distanceFraction) {
+        if (pullRefreshState.distanceFraction >= 1f) {
+            if (!hasVibrated) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                hasVibrated = true
+            }
+        } else {
+            if (hasVibrated && pullRefreshState.distanceFraction > 0f) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                hasVibrated = false
+            } else if (pullRefreshState.distanceFraction == 0f) {
+                hasVibrated = false
+            }
+        }
+    }
     
     // Update WebView URL whenever the state URL changes
     LaunchedEffect(url) {
@@ -159,9 +193,17 @@ fun WebViewContainer(
         }
     }
 
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            currentOnRefresh()
+        },
+        state = pullRefreshState,
+        modifier = modifier
+    ) {
+        AndroidView(
+            factory = { context ->
+                NestedScrollWebView(context).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -182,6 +224,7 @@ fun WebViewContainer(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        currentOnPageFinished()
                         val jsToInject = """
                             (function() {
                                 var meta = document.querySelector('meta[name="theme-color"]');
@@ -208,8 +251,9 @@ fun WebViewContainer(
             webView.stopLoading()
             webView.destroy()
         },
-        modifier = modifier
+        modifier = Modifier.fillMaxSize()
     )
+    }
 }
 
 @Composable
