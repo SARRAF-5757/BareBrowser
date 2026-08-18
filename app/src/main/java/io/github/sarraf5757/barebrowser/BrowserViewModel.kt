@@ -37,18 +37,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     
     init {
         loadTabs()
-        fun openUrlInNewTab(url: String) {
-        // If the only tab is a blank new tab, reuse it
-        if (_tabs.value.size == 1 && _tabs.value[0].url == "about:blank") {
-            updateTabUrl(_tabs.value[0].id, url)
-        } else {
-            val newTab = Tab(url = url)
-            _tabs.value = _tabs.value + newTab
-            _currentTabId.value = newTab.id
-            saveTabs()
-        }
     }
-}    
+    
     private fun loadTabs() {
         val tabsJson = prefs.getString("tabs", "[]") ?: "[]"
         val loadedTabs = try {
@@ -64,8 +54,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _tabs.value = listOf(initialTab)
             _currentTabId.value = initialTab.id
         } else {
-            _tabs.value = loadedTabs
-            _currentTabId.value = savedCurrentId ?: loadedTabs.firstOrNull()?.id
+            val activeTab = loadedTabs.find { it.id == savedCurrentId } ?: loadedTabs.firstOrNull()
+            if (activeTab != null && activeTab.url != "about:blank" && activeTab.url.isNotBlank()) {
+                val newBlankTab = Tab(url = "about:blank")
+                _tabs.value = loadedTabs + newBlankTab
+                _currentTabId.value = newBlankTab.id
+            } else {
+                _tabs.value = loadedTabs
+                _currentTabId.value = activeTab?.id
+            }
         }
     }
     
@@ -190,9 +187,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         updateTabUrl(tabId, finalUrl)
     }
     fun openUrlInNewTab(url: String) {
-        // If the only tab is a blank new tab, reuse it
-        if (_tabs.value.size == 1 && _tabs.value[0].url == "about:blank") {
-            updateTabUrl(_tabs.value[0].id, url)
+        val currentId = _currentTabId.value
+        val currentTab = _tabs.value.find { it.id == currentId }
+        
+        // If the current tab is blank, just reuse it
+        if (currentTab != null && currentTab.url == "about:blank") {
+            updateTabUrl(currentTab.id, url)
         } else {
             val newTab = Tab(url = url)
             _tabs.value = _tabs.value + newTab
