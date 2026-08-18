@@ -1,5 +1,6 @@
 package io.github.sarraf5757.barebrowser
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,6 +20,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        handleIntent(intent)
+        
         // Enables drawing behind system bars (status/navigation)
         enableEdgeToEdge()
         
@@ -30,6 +33,20 @@ class MainActivity : ComponentActivity() {
                 ) {
                     BrowserScreen(viewModel = viewModel)
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            val url = intent.dataString
+            if (url != null) {
+                viewModel.openUrlInNewTab(url)
             }
         }
     }

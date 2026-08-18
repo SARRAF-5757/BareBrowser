@@ -37,8 +37,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     
     init {
         loadTabs()
+        fun openUrlInNewTab(url: String) {
+        // If the only tab is a blank new tab, reuse it
+        if (_tabs.value.size == 1 && _tabs.value[0].url == "about:blank") {
+            updateTabUrl(_tabs.value[0].id, url)
+        } else {
+            val newTab = Tab(url = url)
+            _tabs.value = _tabs.value + newTab
+            _currentTabId.value = newTab.id
+            saveTabs()
+        }
     }
-    
+}    
     private fun loadTabs() {
         val tabsJson = prefs.getString("tabs", "[]") ?: "[]"
         val loadedTabs = try {
@@ -178,5 +188,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
         
         updateTabUrl(tabId, finalUrl)
+    }
+    fun openUrlInNewTab(url: String) {
+        // If the only tab is a blank new tab, reuse it
+        if (_tabs.value.size == 1 && _tabs.value[0].url == "about:blank") {
+            updateTabUrl(_tabs.value[0].id, url)
+        } else {
+            val newTab = Tab(url = url)
+            _tabs.value = _tabs.value + newTab
+            _currentTabId.value = newTab.id
+            saveTabs()
+        }
     }
 }
