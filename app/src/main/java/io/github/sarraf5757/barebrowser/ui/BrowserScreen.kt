@@ -43,6 +43,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     
     val currentTab = tabs.find { it.id == currentTabId }
     var isTabViewVisible by remember { mutableStateOf(false) }
+    var themeColor by remember(currentTabId) { mutableStateOf<Color?>(null) }
 
     // Intercept back button to close tab view if it's open
     BackHandler(enabled = isTabViewVisible) {
@@ -55,7 +56,19 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             WebViewContainer(
                 url = currentTab.url,
                 onUrlUpdate = { newUrl -> viewModel.updateTabUrl(currentTab.id, newUrl) },
-                modifier = Modifier.fillMaxSize()
+                onThemeColorUpdate = { color -> themeColor = color },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+            )
+            
+            // Status bar background color layer
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(themeColor ?: MaterialTheme.colorScheme.background)
+                    .align(Alignment.TopCenter)
             )
             
             // Overlay a themed background when the page is blank
@@ -117,6 +130,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 fun WebViewContainer(
     url: String,
     onUrlUpdate: (String) -> Unit,
+    onThemeColorUpdate: (Color?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -146,6 +160,24 @@ fun WebViewContainer(
                         super.onPageStarted(view, url, favicon)
                         if (url != null) {
                             onUrlUpdate(url)
+                        }
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        val jsToInject = """
+                            (function() {
+                                var meta = document.querySelector('meta[name="theme-color"]');
+                                if (meta) return meta.content;
+                                var bgColor = window.getComputedStyle(document.body).backgroundColor;
+                                if (bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                                    return window.getComputedStyle(document.documentElement).backgroundColor;
+                                }
+                                return bgColor;
+                            })();
+                        """.trimIndent()
+                        view?.evaluateJavascript(jsToInject) { result ->
+                            onThemeColorUpdate(parseColorString(result))
                         }
                     }
                 }
