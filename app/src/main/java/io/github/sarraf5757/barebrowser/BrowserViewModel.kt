@@ -21,6 +21,7 @@ import java.util.UUID
 data class Tab(
     val id: String = UUID.randomUUID().toString(),
     val url: String = "about:blank",
+    val title: String? = null,
     val isPinned: Boolean = false,
     val lastAccessed: Long = System.currentTimeMillis(),
     val thumbnailBase64: String? = null
@@ -138,6 +139,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _tabs.value = _tabs.value.map { tab ->
             if (tab.id == tabId) {
                 tab.copy(url = newUrl)
+            } else {
+                tab
+            }
+        }
+        saveTabs()
+    }
+    
+    fun updateTabTitle(tabId: String, newTitle: String) {
+        _tabs.value = _tabs.value.map { tab ->
+            if (tab.id == tabId) {
+                tab.copy(title = newTitle)
             } else {
                 tab
             }

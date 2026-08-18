@@ -63,6 +63,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 currentTabId = currentTabId,
                 isTabViewVisible = isTabViewVisible,
                 onUrlUpdate = { tabId, newUrl -> viewModel.updateTabUrl(tabId, newUrl) },
+                onTitleUpdate = { tabId, newTitle -> viewModel.updateTabTitle(tabId, newTitle) },
                 onThemeColorUpdate = { color -> themeColor = color },
                 onThumbnailCaptured = { tabId, thumb -> viewModel.updateThumbnail(tabId, thumb) },
                 modifier = Modifier
@@ -142,6 +143,7 @@ fun WebViewContainer(
     currentTabId: String?,
     isTabViewVisible: Boolean,
     onUrlUpdate: (String, String) -> Unit,
+    onTitleUpdate: (String, String) -> Unit,
     onThemeColorUpdate: (Color?) -> Unit,
     onThumbnailCaptured: (String, String) -> Unit,
     modifier: Modifier = Modifier
@@ -152,6 +154,7 @@ fun WebViewContainer(
     var hasVibrated by remember { mutableStateOf(false) }
 
     val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
+    val currentOnTitleUpdate by rememberUpdatedState(onTitleUpdate)
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
     val currentOnPageFinished by rememberUpdatedState {
         isRefreshing = false
@@ -270,7 +273,14 @@ fun WebViewContainer(
                                     }
                                 }
                             }
-                            webChromeClient = WebChromeClient()
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onReceivedTitle(view: WebView?, title: String?) {
+                                    super.onReceivedTitle(view, title)
+                                    if (title != null) {
+                                        currentOnTitleUpdate(tab.id, title)
+                                    }
+                                }
+                            }
                             loadUrl(tab.url)
                         }
                         frameLayout.addView(webView)
@@ -476,6 +486,13 @@ fun TabCard(
     modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(dismissState.targetValue) {
+        if (dismissState.targetValue != SwipeToDismissBoxValue.Settled && !tab.isPinned) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
 
     LaunchedEffect(dismissState) {
         snapshotFlow { 
@@ -531,7 +548,7 @@ fun TabCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = tab.url,
+                        text = if (!tab.title.isNullOrBlank()) tab.title else tab.url,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
@@ -567,7 +584,7 @@ fun TabCard(
                         )
                     } else {
                         Text(
-                            text = tab.url,
+                            text = if (!tab.title.isNullOrBlank()) tab.title else tab.url,
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 3,
                             color = MaterialTheme.colorScheme.onBackground
