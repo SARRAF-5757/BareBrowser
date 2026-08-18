@@ -455,7 +455,7 @@ fun TabView(
                 Box(modifier = Modifier.padding(16.dp)) {
                     FloatingActionButton(
                         onClick = onNewTab,
-                        modifier = Modifier.align(Alignment.CenterStart)
+                        modifier = Modifier.align(Alignment.Center)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "New Tab")
                     }
