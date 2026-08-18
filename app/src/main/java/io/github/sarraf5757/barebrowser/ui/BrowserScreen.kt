@@ -235,7 +235,7 @@ fun UrlBar(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.secondaryContainer,
             onClick = onNewTab,
-            modifier = Modifier.fillMaxHeight().aspectRatio(1f) // Ensure it stays perfectly square while filling height
+            modifier = Modifier.fillMaxHeight().aspectRatio(1f)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -361,16 +361,19 @@ fun TabCard(
     onPin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue != SwipeToDismissBoxValue.Settled && !tab.isPinned) {
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    LaunchedEffect(dismissState) {
+        snapshotFlow { 
+            dismissState.currentValue == dismissState.targetValue && 
+            dismissState.progress == 1.0f && 
+            dismissState.currentValue != SwipeToDismissBoxValue.Settled 
+        }.collect { isFullyDismissed ->
+            if (isFullyDismissed && !tab.isPinned) {
                 onClose()
-                true
-            } else {
-                false
             }
         }
-    )
+    }
 
     SwipeToDismissBox(
         state = dismissState,
