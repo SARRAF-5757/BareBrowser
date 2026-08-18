@@ -140,6 +140,9 @@ fun WebViewContainer(
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     
+    val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
+    val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
+    
     // Update WebView URL whenever the state URL changes
     LaunchedEffect(url) {
         if (webViewInstance?.url != url && webViewInstance?.url != "$url/") {
@@ -173,7 +176,7 @@ fun WebViewContainer(
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
                         if (url != null) {
-                            onUrlUpdate(url)
+                            currentOnUrlUpdate(url)
                         }
                     }
 
@@ -191,7 +194,7 @@ fun WebViewContainer(
                             })();
                         """.trimIndent()
                         view?.evaluateJavascript(jsToInject) { result ->
-                            onThemeColorUpdate(parseColorString(result))
+                            currentOnThemeColorUpdate(parseColorString(result))
                         }
                     }
                 }
