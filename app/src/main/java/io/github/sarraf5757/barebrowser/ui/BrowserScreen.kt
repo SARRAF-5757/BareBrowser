@@ -55,8 +55,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         if (currentTab != null) {
             WebViewContainer(
                 url = currentTab.url,
+                isTabViewVisible = isTabViewVisible,
                 onUrlUpdate = { newUrl -> viewModel.updateTabUrl(currentTab.id, newUrl) },
                 onThemeColorUpdate = { color -> themeColor = color },
+                onThumbnailCaptured = { thumb -> viewModel.updateThumbnail(currentTab.id, thumb) },
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
@@ -116,6 +118,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 },
                 onTabClosed = { tabId -> viewModel.closeTab(tabId) },
                 onTabPinned = { tabId -> viewModel.togglePin(tabId) },
+                onTabMoved = { from, to -> viewModel.moveTab(from, to) },
                 onNewTab = {
                     viewModel.createNewTab()
                     isTabViewVisible = false
@@ -129,8 +132,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 @Composable
 fun WebViewContainer(
     url: String,
+    isTabViewVisible: Boolean,
     onUrlUpdate: (String) -> Unit,
     onThemeColorUpdate: (Color?) -> Unit,
+    onThumbnailCaptured: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
@@ -139,6 +144,15 @@ fun WebViewContainer(
     LaunchedEffect(url) {
         if (webViewInstance?.url != url && webViewInstance?.url != "$url/") {
             webViewInstance?.loadUrl(url)
+        }
+    }
+    
+    LaunchedEffect(isTabViewVisible) {
+        if (isTabViewVisible) {
+            val thumb = captureWebViewToThumbnail(webViewInstance)
+            if (thumb != null) {
+                onThumbnailCaptured(thumb)
+            }
         }
     }
 
@@ -278,14 +292,17 @@ fun TabView(
     onTabSelected: (String) -> Unit,
     onTabClosed: (String) -> Unit,
     onTabPinned: (String) -> Unit,
+    onTabMoved: (Int, Int) -> Unit,
     onNewTab: () -> Unit
 ) {
-    val sortedTabs = tabs.sortedBy { it.lastAccessed } 
+    val gridState = rememberLazyGridState()
+    val dragDropState = rememberDragDropState(gridState = gridState, onMove = onTabMoved)
     
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
+            .dragContainer(dragDropState)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -294,12 +311,13 @@ fun TabView(
             // Tab Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
+                state = gridState,
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.weight(1f, fill = false) 
             ) {
-                items(sortedTabs, key = { it.id }) { tab ->
+                items(tabs, key = { it.id }) { tab ->
                     TabCard(
                         tab = tab,
                         isSelected = tab.id == currentTabId,
@@ -415,12 +433,22 @@ fun TabCard(
                         .background(MaterialTheme.colorScheme.background),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = tab.url,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 3,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    val imageBitmap = remember(tab.thumbnailBase64) { decodeBase64ToImageBitmap(tab.thumbnailBase64) }
+                    if (imageBitmap != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = imageBitmap,
+                            contentDescription = "Tab Preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = tab.url,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 3,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
             }
         }

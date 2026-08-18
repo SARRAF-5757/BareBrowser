@@ -22,7 +22,8 @@ data class Tab(
     val id: String = UUID.randomUUID().toString(),
     val url: String = "about:blank",
     val isPinned: Boolean = false,
-    val lastAccessed: Long = System.currentTimeMillis()
+    val lastAccessed: Long = System.currentTimeMillis(),
+    val thumbnailBase64: String? = null
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -135,6 +136,27 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         saveTabs()
+    }
+    
+    fun updateThumbnail(tabId: String, base64: String) {
+        _tabs.value = _tabs.value.map { tab ->
+            if (tab.id == tabId) {
+                tab.copy(thumbnailBase64 = base64)
+            } else {
+                tab
+            }
+        }
+        saveTabs()
+    }
+    
+    fun moveTab(fromIndex: Int, toIndex: Int) {
+        val currentTabs = _tabs.value.toMutableList()
+        if (fromIndex in currentTabs.indices && toIndex in currentTabs.indices) {
+            val tab = currentTabs.removeAt(fromIndex)
+            currentTabs.add(toIndex, tab)
+            _tabs.value = currentTabs
+            saveTabs()
+        }
     }
     
     fun handleSearchOrUrl(tabId: String, query: String) {
