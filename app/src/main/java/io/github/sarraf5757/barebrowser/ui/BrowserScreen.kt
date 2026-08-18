@@ -4,6 +4,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
@@ -487,6 +491,7 @@ fun TabCard(
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
     val haptic = LocalHapticFeedback.current
+    var isDragging by remember { mutableStateOf(false) }
 
     LaunchedEffect(dismissState.targetValue) {
         if (dismissState.targetValue != SwipeToDismissBoxValue.Settled && !tab.isPinned) {
@@ -494,10 +499,10 @@ fun TabCard(
         }
     }
 
-    LaunchedEffect(dismissState) {
+    LaunchedEffect(dismissState, isDragging) {
         snapshotFlow { 
+            !isDragging && 
             dismissState.currentValue == dismissState.targetValue && 
-            dismissState.progress == 1.0f && 
             dismissState.currentValue != SwipeToDismissBoxValue.Settled 
         }.collect { isFullyDismissed ->
             if (isFullyDismissed && !tab.isPinned) {
@@ -510,7 +515,16 @@ fun TabCard(
         state = dismissState,
         enableDismissFromStartToEnd = !tab.isPinned,
         enableDismissFromEndToStart = !tab.isPinned,
-        modifier = modifier,
+        modifier = modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                isDragging = true
+                do {
+                    val event = awaitPointerEvent()
+                } while (event.changes.any { it.pressed })
+                isDragging = false
+            }
+        },
         backgroundContent = {
             Box(
                 modifier = Modifier
