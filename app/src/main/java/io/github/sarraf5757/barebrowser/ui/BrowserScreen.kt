@@ -285,6 +285,14 @@ fun WebViewContainer(
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             
                             webViewClient = object : WebViewClient() {
+
+                                override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+                                    if (AdBlocker.shouldBlock(request)) {
+                                        return AdBlocker.createEmptyResponse()
+                                    }
+                                    return super.shouldInterceptRequest(view, request)
+                                }
+
                                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                     super.doUpdateVisitedHistory(view, url, isReload)
                                     if (tab.id == currentTabId) {
