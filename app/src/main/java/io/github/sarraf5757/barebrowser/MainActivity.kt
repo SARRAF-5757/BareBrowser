@@ -14,15 +14,11 @@ import io.github.sarraf5757.barebrowser.ui.BrowserScreen
 import io.github.sarraf5757.barebrowser.ui.theme.BareBrowserTheme
 
 class MainActivity : ComponentActivity() {
-    // Simplified ViewModel initialization using the viewModels delegate
     private val viewModel: BrowserViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
         handleIntent(intent)
-        
-        // Enables drawing behind system bars (status/navigation)
         enableEdgeToEdge()
         
         setContent {

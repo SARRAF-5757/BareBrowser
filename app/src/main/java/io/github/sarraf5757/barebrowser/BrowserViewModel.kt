@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import androidx.lifecycle.viewModelScope
@@ -17,7 +16,7 @@ import java.net.URLEncoder
 import java.util.UUID
 
 /**
- * Data model representing a single Browser Tab.
+ * Data structure of a tab
  */
 @Serializable
 data class Tab(
@@ -30,91 +29,67 @@ data class Tab(
 )
 
 /**
- * ViewModel managing the state of the browser, including the list of tabs, the active tab,
- * and persistence using SharedPreferences.
+ * ViewModel managing the state of the browser: the list of tabs, the active tab, and persistence (SharedPreferences)
  */
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("bare_browser_prefs", Context.MODE_PRIVATE)
-    
-    // Internal state flow for tabs list
-    private val _tabs = MutableStateFlow<List<Tab>>(emptyList())
+    private val _tabs = MutableStateFlow<List<Tab>>(emptyList())    // Internal state flow for tabs list
     val tabs: StateFlow<List<Tab>> = _tabs.asStateFlow()
-    
-    // Internal state flow for the currently active tab ID
-    private val _currentTabId = MutableStateFlow<String?>(null)
+    private val _currentTabId = MutableStateFlow<String?>(null)     // Internal state flow for the currently active tab ID
     val currentTabId: StateFlow<String?> = _currentTabId.asStateFlow()
     
     init {
-        // Initialize state from persistent storage upon creation
-        loadTabs()
+        loadTabs()  // Initialize state from persistent storage upon creation
     }
     
     /**
-     * Loads tabs from SharedPreferences. If restoring from a previous session where a website was open,
-     * it automatically injects a fresh blank tab and sets it as active.
+     * Load tabs from SharedPreferences
      */
     private fun loadTabs() {
-        var tabsJson = prefs.getString("tabs", "[]")
-        if (tabsJson == null) {
-            tabsJson = "[]"
-        }
-        
-        var loadedTabs: List<Tab>
-        try {
-            loadedTabs = Json.decodeFromString<List<Tab>>(tabsJson)
-        } catch (e: Exception) {
-            loadedTabs = emptyList()
-        }
-        
+        val tabsJson = prefs.getString("tabs", "[]")!!
+        val loadedTabs = Json.decodeFromString<List<Tab>>(tabsJson)
         val savedCurrentId = prefs.getString("currentTabId", null)
         
         if (loadedTabs.isEmpty()) {
-            // First time launch or corrupted data: start fresh
             val initialTab = Tab()
             _tabs.value = listOf(initialTab)
             _currentTabId.value = initialTab.id
+            return
+        }
+
+        var activeTab: Tab? = null
+        for (tab in loadedTabs) {
+            if (tab.id == savedCurrentId) {
+                activeTab = tab
+                break
+            }
+        }
+
+        // If a non-blank tab was restored as activeTab, inject a fresh blank tab and set it as active
+        if (activeTab != null && activeTab.url != "about:blank" && activeTab.url.isNotBlank()) {
+            val newBlankTab = Tab(url = "about:blank")
+            val updatedTabs = mutableListOf<Tab>()
+            updatedTabs.addAll(loadedTabs)
+            updatedTabs.add(newBlankTab)
+
+            _tabs.value = updatedTabs
+            _currentTabId.value = newBlankTab.id
         } else {
-            // Find the active tab by ID, or fallback to the first tab
-            var activeTab: Tab? = null
-            for (tab in loadedTabs) {
-                if (tab.id == savedCurrentId) {
-                    activeTab = tab
-                    break
-                }
-            }
-            if (activeTab == null && loadedTabs.isNotEmpty()) {
-                activeTab = loadedTabs[0]
-            }
-            
-            // If the last active tab was not blank, push a new blank tab for the cold start
-            if (activeTab != null && activeTab.url != "about:blank" && activeTab.url.isNotBlank()) {
-                val newBlankTab = Tab(url = "about:blank")
-                
-                val updatedTabs = mutableListOf<Tab>()
-                updatedTabs.addAll(loadedTabs)
-                updatedTabs.add(newBlankTab)
-                
-                _tabs.value = updatedTabs
-                _currentTabId.value = newBlankTab.id
-            } else {
-                _tabs.value = loadedTabs
-                if (activeTab != null) {
-                    _currentTabId.value = activeTab.id
-                } else {
-                    _currentTabId.value = null
-                }
+            _tabs.value = loadedTabs
+            if (activeTab != null) {
+                _currentTabId.value = activeTab.id
             }
         }
     }
     
     /**
-     * Persists the current state to SharedPreferences.
+     * Helper - Persist the current state to SharedPreferences
      */
     private fun saveTabs() {
         val currentTabs = _tabs.value
         val currentId = _currentTabId.value
         
-        // Offload JSON serialization to IO thread to prevent UI micro-stutters
+        // Offload JSON serialization to IO thread (to prevent UI stutters)
         viewModelScope.launch(Dispatchers.IO) {
             val json = Json.encodeToString(currentTabs)
             prefs.edit().apply {
@@ -126,26 +101,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Creates a new blank tab and sets it as the active tab.
+     * Create a new blank tab and sets it as the active tab
      */
     fun createNewTab() {
         val newTab = Tab()
-        _tabs.value = _tabs.value + newTab
+        _tabs.value += newTab
         _currentTabId.value = newTab.id
         saveTabs()
     }
     
     /**
-     * Closes the tab with the specified ID. Prevents pinned tabs from being closed,
-     * and ensures at least one blank tab is always available.
+     * Close the tab (unpinned) with the specified ID & ensure at least one blank tab is always available
      */
     fun closeTab(tabId: String) {
         val currentTabs = _tabs.value
-        val tabToClose = currentTabs.find { it.id == tabId }
-        
-        // Pinned tabs cannot be closed directly
-        if (tabToClose?.isPinned == true) return 
-        
         val remainingTabs = currentTabs.filter { it.id != tabId }
         
         if (remainingTabs.isEmpty()) {
@@ -154,7 +123,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _currentTabId.value = fallbackTab.id
         } else {
             _tabs.value = remainingTabs
-            // Shift focus if the active tab was closed
             if (_currentTabId.value == tabId) {
                 _currentTabId.value = remainingTabs.last().id
             }
@@ -163,7 +131,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Switches the active tab to the specified ID and updates its last accessed timestamp.
+     * Switch the active tab to the specified ID and updates its last accessed timestamp
      */
     fun selectTab(tabId: String) {
         val currentTabs = _tabs.value
@@ -191,11 +159,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             saveTabs()
         }
     }
-    
+
+    /**
+     * Tab Setter - Set the pinned bool in a tab
+     */
     fun togglePin(tabId: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
-        
+
         for (tab in currentTabs) {
             if (tab.id == tabId) {
                 updatedTabs.add(tab.copy(isPinned = !tab.isPinned))
@@ -207,7 +178,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _tabs.value = updatedTabs
         saveTabs()
     }
-    
+
+    /**
+     * Tab Setter - Change the url of an existing tab
+     */
     fun updateTabUrl(tabId: String, newUrl: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
@@ -223,7 +197,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _tabs.value = updatedTabs
         saveTabs()
     }
-    
+
+    /**
+     * Tab Setter - Change the title of the tab with the string
+     */
     fun updateTabTitle(tabId: String, newTitle: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
@@ -239,7 +216,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _tabs.value = updatedTabs
         saveTabs()
     }
-    
+
+    /**
+     * Tab Setter - Set the thumbnail image
+     */
     fun updateThumbnail(tabId: String, base64: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
@@ -257,7 +237,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Reorders tabs by moving a tab from one index to another.
+     * Reorder _tabs by moving a tab from one index to another
      */
     fun moveTab(fromIndex: Int, toIndex: Int) {
         val currentTabs = _tabs.value.toMutableList()
@@ -270,14 +250,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Parses the user's input. If it resembles a URL, it formats it correctly.
-     * Otherwise, it treats it as a Google search query.
+     * Parse user input
+     * if URL, format it as such
+     * otherwise, treat it as a Google search query
      */
     fun handleSearchOrUrl(tabId: String, query: String) {
         val trimmedInput = query.trim()
         if (trimmedInput.isEmpty()) return
         
-        // Checks for a dot and no spaces, or starts with http/https
+        // Check for a dot and no spaces, or starts with http/https
         val isUrl = trimmedInput.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))
         
         val finalUrl = if (isUrl) {
@@ -294,8 +275,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Opens a URL in a new tab. If the current active tab is completely blank,
-     * it reuses that tab instead to prevent empty tab accumulation.
+     * Open a URL in a new tab
+     * if the current active tab is blank, reuse that tab instead
      */
     fun openUrlInNewTab(url: String) {
         val currentId = _currentTabId.value
@@ -305,7 +286,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             updateTabUrl(currentTab.id, url)
         } else {
             val newTab = Tab(url = url)
-            _tabs.value = _tabs.value + newTab
+            _tabs.value += newTab
             _currentTabId.value = newTab.id
             saveTabs()
         }

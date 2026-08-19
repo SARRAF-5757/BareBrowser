@@ -10,55 +10,34 @@ import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
 
-suspend fun captureWebViewToThumbnail(webView: WebView?): String? {
-    if (webView == null) return null
-    
-    // View measurements and drawing must happen on the Main thread
+suspend fun captureWebViewToThumbnail(webView: WebView): String {
     val width = webView.width
     val height = webView.height
-    if (width <= 0 || height <= 0) return null
     
-    return try {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        webView.draw(canvas)
-        
-        // Offload heavy image processing (scaling, compression, base64) to IO thread
-        withContext(Dispatchers.IO) {
-            val thumbWidth = 300
-            var thumbHeight = (height.toFloat() / width.toFloat() * thumbWidth).toInt()
-            if (thumbHeight <= 0) {
-                thumbHeight = 300
-            }
-            val scaledBitmap = Bitmap.createScaledBitmap(bitmap, thumbWidth, thumbHeight, true)
-            
-            val outputStream = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-            
-            // Clean up original bitmap to save memory since we have the scaled version
-            bitmap.recycle()
-            
-            val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-            scaledBitmap.recycle()
-            
-            base64
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        null
+    val bitmap = createBitmap(width, height)
+    val canvas = Canvas(bitmap)
+    webView.draw(canvas)
+    
+    return withContext(Dispatchers.IO) {
+        val thumbWidth = 300
+        val thumbHeight = (height.toFloat() / width.toFloat() * thumbWidth).toInt()
+        val scaledBitmap = bitmap.scale(thumbWidth, thumbHeight)
+        val outputStream = ByteArrayOutputStream()
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+        bitmap.recycle()
+        val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+        scaledBitmap.recycle()
+        base64
     }
 }
 
-suspend fun decodeBase64ToImageBitmap(base64Str: String?): ImageBitmap? {
-    if (base64Str.isNullOrEmpty()) return null
+suspend fun decodeBase64ToImageBitmap(base64Str: String): ImageBitmap {
     return withContext(Dispatchers.IO) {
-        try {
-            val imageBytes = Base64.decode(base64Str, Base64.DEFAULT)
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            bitmap?.asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
+        val imageBytes = Base64.decode(base64Str, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        bitmap.asImageBitmap()
     }
 }

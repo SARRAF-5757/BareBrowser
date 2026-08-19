@@ -2,8 +2,6 @@ package io.github.sarraf5757.barebrowser.ui
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.view.ViewGroup
-import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -22,8 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,21 +27,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.sarraf5757.barebrowser.BrowserViewModel
 import io.github.sarraf5757.barebrowser.Tab
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * Main screen for the browser, coordinating the WebView, the URL bar, and the Tab View.
+ * Main screen for the browser [WebView, URL bar, & Tab View]
  */
 @Composable
 fun BrowserScreen(viewModel: BrowserViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var frameLayoutRef by remember { mutableStateOf<android.widget.FrameLayout?>(null) }
     // Collecting state from ViewModel
     val tabs by viewModel.tabs.collectAsState()
     val currentTabId by viewModel.currentTabId.collectAsState()
@@ -53,10 +50,54 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     val currentTab = tabs.find { it.id == currentTabId }
     var isTabViewVisible by remember { mutableStateOf(false) }
     var themeColor by remember(currentTabId) { mutableStateOf<Color?>(null) }
+    var canGoForward by remember(currentTabId) { mutableStateOf(false) }
+    var showLastPageToast by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(showLastPageToast) {
+        if (showLastPageToast) {
+            kotlinx.coroutines.delay(2500.milliseconds)
+            showLastPageToast = false
+        }
+    }
 
     // Intercept back button to close tab view if it's open
     BackHandler(enabled = isTabViewVisible) {
         isTabViewVisible = false
+    }
+    
+    // Intercept back button for WebView navigation
+    BackHandler(enabled = !isTabViewVisible && currentTab != null) {
+        val activeWebView = frameLayoutRef?.findViewWithTag<WebView>(currentTabId)
+        
+        var canActuallyGoBack = false
+        if (activeWebView != null) {
+            val backForwardList = activeWebView.copyBackForwardList()
+            val currentIndex = backForwardList.currentIndex
+            if (currentIndex > 0) {
+                val previousUrl = backForwardList.getItemAtIndex(currentIndex - 1).url
+                canActuallyGoBack = previousUrl != "about:blank"
+            }
+        }
+        
+        if (activeWebView != null && canActuallyGoBack) {
+            activeWebView.goBack()
+            showLastPageToast = false
+        } else {
+            // If it's a blank tab, exit the app
+            if (currentTab?.url == "about:blank" || currentTab?.url?.isEmpty() == true) {
+                (context as? android.app.Activity)?.finish()
+            } else {
+                // We are on an actual webpage result that cannot go back further (or only to about:blank)
+                if (showLastPageToast) {
+                    if (currentTabId != null) {
+                        viewModel.closeTab(currentTabId!!)
+                    }
+                    showLastPageToast = false
+                } else {
+                    showLastPageToast = true
+                }
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -69,7 +110,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 onUrlUpdate = { tabId, newUrl -> viewModel.updateTabUrl(tabId, newUrl) },
                 onTitleUpdate = { tabId, newTitle -> viewModel.updateTabTitle(tabId, newTitle) },
                 onThemeColorUpdate = { color -> themeColor = color },
+                onCanGoForwardUpdate = { canGoForward = it },
                 onThumbnailCaptured = { tabId, thumb -> viewModel.updateThumbnail(tabId, thumb) },
+                frameLayoutRef = frameLayoutRef,
+                onFrameLayoutCreated = { frameLayoutRef = it },
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
@@ -105,12 +149,44 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     .padding(bottom = 16.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
-                UrlBar(
-                    currentUrl = if (currentTab.url == "about:blank") "" else currentTab.url,
-                    onSearch = { query -> viewModel.handleSearchOrUrl(currentTab.id, query) },
-                    onNewTab = { viewModel.createNewTab() },
-                    onSwipeUp = { isTabViewVisible = true }
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AnimatedVisibility(
+                        visible = showLastPageToast,
+                        enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
+                        exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 })
+                    ) {
+                        Surface(
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.inverseSurface,
+                            contentColor = MaterialTheme.colorScheme.inverseOnSurface
+                        ) {
+                            Text(
+                                text = "This is the last page",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+
+                    UrlBar(
+                        currentUrl = if (currentTab.url == "about:blank") "" else currentTab.url,
+                        canGoForward = canGoForward,
+                        onSearch = { query -> viewModel.handleSearchOrUrl(currentTab.id, query) },
+                        onNewTab = { viewModel.createNewTab() },
+                        onSwipeUp = { isTabViewVisible = true },
+                        onReload = {
+                            val activeWebView = frameLayoutRef?.findViewWithTag<WebView>(currentTab.id)
+                            activeWebView?.reload()
+                        },
+                        onForward = {
+                            val activeWebView = frameLayoutRef?.findViewWithTag<WebView>(currentTab.id)
+                            activeWebView?.goForward()
+                        }
+                    )
+                }
             }
         }
 
@@ -139,76 +215,39 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     }
 }
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebViewContainer(
-    tabs: List<io.github.sarraf5757.barebrowser.Tab>,
+    tabs: List<Tab>,
     currentTabId: String?,
     isTabViewVisible: Boolean,
     onUrlUpdate: (String, String) -> Unit,
     onTitleUpdate: (String, String) -> Unit,
     onThemeColorUpdate: (Color?) -> Unit,
+    onCanGoForwardUpdate: (Boolean) -> Unit,
     onThumbnailCaptured: (String, String) -> Unit,
+    frameLayoutRef: android.widget.FrameLayout?,
+    onFrameLayoutCreated: (android.widget.FrameLayout) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isRefreshing by remember { mutableStateOf(false) }
-    val pullRefreshState = rememberPullToRefreshState()
-    val haptic = LocalHapticFeedback.current
-    var hasVibrated by remember { mutableStateOf(false) }
-
     val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
     val currentOnTitleUpdate by rememberUpdatedState(onTitleUpdate)
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
-    val currentOnPageFinished by rememberUpdatedState {
-        isRefreshing = false
-    }
-    
-    // We hold a reference to the FrameLayout to query the active WebView
-    var frameLayoutRef by remember { mutableStateOf<android.widget.FrameLayout?>(null) }
-
-    val currentOnRefresh by rememberUpdatedState {
-        isRefreshing = true
-        if (currentTabId != null) {
-            val activeWebView = frameLayoutRef?.findViewWithTag<NestedScrollWebView>(currentTabId)
-            activeWebView?.reload()
-        }
-    }
-
-    LaunchedEffect(pullRefreshState.distanceFraction) {
-        if (pullRefreshState.distanceFraction >= 1f) {
-            if (!hasVibrated) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                hasVibrated = true
-            }
-        } else {
-            if (hasVibrated && pullRefreshState.distanceFraction > 0f) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                hasVibrated = false
-            } else if (pullRefreshState.distanceFraction == 0f) {
-                hasVibrated = false
-            }
-        }
-    }
+    val currentOnCanGoForwardUpdate by rememberUpdatedState(onCanGoForwardUpdate)
     
     LaunchedEffect(isTabViewVisible) {
         if (isTabViewVisible && currentTabId != null) {
-            val activeWebView = frameLayoutRef?.findViewWithTag<NestedScrollWebView>(currentTabId)
-            val thumb = captureWebViewToThumbnail(activeWebView)
-            if (thumb != null) {
+            val activeWebView = frameLayoutRef?.findViewWithTag<WebView>(currentTabId)
+            if (activeWebView != null) {
+                val thumb = captureWebViewToThumbnail(activeWebView)
                 onThumbnailCaptured(currentTabId, thumb)
             }
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            currentOnRefresh()
-        },
-        state = pullRefreshState,
-        modifier = modifier
-    ) {
+    Box(modifier = modifier) {
         AndroidView(
             factory = { context ->
                 android.widget.FrameLayout(context).apply {
@@ -216,7 +255,7 @@ fun WebViewContainer(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    frameLayoutRef = this
+                    onFrameLayoutCreated(this)
                 }
             },
             update = { frameLayout ->
@@ -229,7 +268,7 @@ fun WebViewContainer(
                 // Create new WebViews for any tabs that don't have one
                 for (tab in tabs) {
                     if (!existingTags.contains(tab.id)) {
-                        val webView = NestedScrollWebView(frameLayout.context).apply {
+                        val webView = WebView(frameLayout.context).apply {
                             tag = tab.id
                             layoutParams = android.widget.FrameLayout.LayoutParams(
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -245,6 +284,13 @@ fun WebViewContainer(
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             
                             webViewClient = object : WebViewClient() {
+                                override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                    super.doUpdateVisitedHistory(view, url, isReload)
+                                    if (tab.id == currentTabId) {
+                                        currentOnCanGoForwardUpdate(view?.canGoForward() == true)
+                                    }
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
                                     if (url != null) {
@@ -257,7 +303,7 @@ fun WebViewContainer(
                                     // Flush cookies
                                     android.webkit.CookieManager.getInstance().flush()
                                     if (tab.id == currentTabId) {
-                                        currentOnPageFinished()
+                                        currentOnCanGoForwardUpdate(view?.canGoForward() == true)
                                     }
                                     val jsToInject = """
                                         (function() {
@@ -307,7 +353,7 @@ fun WebViewContainer(
 
                 // Update visibility and URL loading if URL changed externally
                 for (i in 0 until frameLayout.childCount) {
-                    val child = frameLayout.getChildAt(i) as NestedScrollWebView
+                    val child = frameLayout.getChildAt(i) as WebView
                     val tabId = child.tag as String
                     val tab = tabs.find { it.id == tabId }
                     
@@ -340,12 +386,16 @@ fun WebViewContainer(
     }
 }
 
+
 @Composable
 fun UrlBar(
     currentUrl: String,
+    canGoForward: Boolean,
     onSearch: (String) -> Unit,
     onNewTab: () -> Unit,
-    onSwipeUp: () -> Unit
+    onSwipeUp: () -> Unit,
+    onReload: () -> Unit,
+    onForward: () -> Unit
 ) {
     var textInput by remember(currentUrl) { mutableStateOf(currentUrl) }
     val focusManager = LocalFocusManager.current
@@ -360,7 +410,7 @@ fun UrlBar(
     ) {
         // Add Tab Button - Material You secondary style
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = androidx.compose.foundation.shape.CircleShape,
             color = MaterialTheme.colorScheme.secondaryContainer,
             onClick = onNewTab,
             modifier = Modifier.fillMaxHeight().aspectRatio(1f)
@@ -395,7 +445,34 @@ fun UrlBar(
                 modifier = Modifier.fillMaxSize(),
                 placeholder = { Text("Search or type URL") },
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                leadingIcon = { 
+                    val haptic = LocalHapticFeedback.current
+                    val isEditing = textInput != currentUrl
+                    val showReload = !isEditing && currentUrl != "about:blank" && currentUrl.isNotEmpty()
+                    
+                    if (showReload) {
+                        Surface(
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onReload()
+                            },
+                            modifier = Modifier.padding(start = 4.dp).size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Reload",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Icon(Icons.Default.Search, contentDescription = null) 
+                    }
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
                     onSearch = {
@@ -410,11 +487,35 @@ fun UrlBar(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
+                trailingIcon = if (canGoForward && textInput == currentUrl) {
+                    {
+                        val haptic = LocalHapticFeedback.current
+                        Surface(
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onForward()
+                            },
+                            modifier = Modifier.padding(end = 4.dp).size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.ArrowForward,
+                                    contentDescription = "Forward",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                } else null,
                 shape = RoundedCornerShape(28.dp)
             )
         }
     }
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -479,6 +580,7 @@ fun TabView(
     }
 }
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabCard(
@@ -513,18 +615,6 @@ fun TabCard(
 
     SwipeToDismissBox(
         state = dismissState,
-        enableDismissFromStartToEnd = !tab.isPinned,
-        enableDismissFromEndToStart = !tab.isPinned,
-        modifier = modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                isDragging = true
-                do {
-                    val event = awaitPointerEvent()
-                } while (event.changes.any { it.pressed })
-                isDragging = false
-            }
-        },
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -539,7 +629,19 @@ fun TabCard(
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
-        }
+        },
+        modifier = modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                isDragging = true
+                do {
+                    val event = awaitPointerEvent()
+                } while (event.changes.any { it.pressed })
+                isDragging = false
+            }
+        },
+        enableDismissFromStartToEnd = !tab.isPinned,
+        enableDismissFromEndToStart = !tab.isPinned
     ) {
         Card(
             onClick = onClick,
@@ -589,7 +691,9 @@ fun TabCard(
                     contentAlignment = Alignment.Center
                 ) {
                     val imageBitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, key1 = tab.thumbnailBase64) {
-                        value = decodeBase64ToImageBitmap(tab.thumbnailBase64)
+                        if (tab.thumbnailBase64 != null) {
+                            value = decodeBase64ToImageBitmap(tab.thumbnailBase64)
+                        }
                     }
                     val bitmap = imageBitmap
                     if (bitmap != null) {

@@ -9,7 +9,7 @@ android {
     compileSdk = 37
     defaultConfig {
         applicationId = "io.github.sarraf5757.barebrowser"
-        minSdk = 30
+        minSdk = 31
         targetSdk = 37
         versionCode = 1
         versionName = "1.0.0"
@@ -53,6 +53,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("com.google.android.material:material:1.14.0")
+    implementation("androidx.startup:startup-runtime:1.2.0")
 
     // Arch Components
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
