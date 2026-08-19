@@ -289,6 +289,16 @@ fun WebViewContainer(
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             
                             webViewClient = object : WebViewClient() {
+                                override fun onSafeBrowsingHit(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?,
+                                    threatType: Int,
+                                    callback: android.webkit.SafeBrowsingResponse?
+                                ) {
+                                    // Explicitly command the WebView to show the red Safe Browsing interstitial
+                                    callback?.showInterstitial(true)
+                                }
+
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                     val url = request?.url ?: return false
                                     val urlString = url.toString()

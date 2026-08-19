@@ -9,6 +9,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.BareBrowser">
+
+        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="true" />
         <activity
             android:name="io.github.sarraf5757.barebrowser.MainActivity"
             android:launchMode="singleTask"
