@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.URLEncoder
 import java.util.UUID
@@ -36,18 +35,18 @@ data class Tab(
 )
 
 /**
- * ViewModel managing the state of the browser: the list of tabs, the active tab, and persistence (DataStore)
+ * ViewModel managing the state of the browser: the list of tabs, the active tab, and persistence
  */
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
     private val dataStore = application.dataStore
     // Keys used to identify specific pieces of data in the file
-    private val TABS_KEY = stringPreferencesKey("tabs")
-    private val CURRENT_TAB_ID_KEY = stringPreferencesKey("currentTabId")
+    private val tabsKey = stringPreferencesKey("tabs")
+    private val currentTabIdKey = stringPreferencesKey("currentTabId")
 
-    private val _tabs = MutableStateFlow<List<Tab>>(emptyList())    // Internal state flow for tabs list
+    private val _tabs = MutableStateFlow<List<Tab>>(emptyList())
     val tabs: StateFlow<List<Tab>> = _tabs.asStateFlow()
 
-    private val _currentTabId = MutableStateFlow<String?>(null)     // Internal state flow for the currently active tab ID
+    private val _currentTabId = MutableStateFlow<String?>(null)
     val currentTabId: StateFlow<String?> = _currentTabId.asStateFlow()
     
     init {
@@ -62,9 +61,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             // Read the current snapshot of data
             val prefs = dataStore.data.first()
-            val tabsJson = prefs[TABS_KEY] ?: "[]"
+            val tabsJson = prefs[tabsKey] ?: "[]"
             val loadedTabs = Json.decodeFromString<List<Tab>>(tabsJson)
-            val savedCurrentId = prefs[CURRENT_TAB_ID_KEY]
+            val savedCurrentId = prefs[currentTabIdKey]
             
             // If no tabs were found, create an initial blank tab
             if (loadedTabs.isEmpty()) {
@@ -89,10 +88,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         // Use the IO thread to write to the file to keep the UI smooth
         viewModelScope.launch(Dispatchers.IO) {
             dataStore.edit { prefs ->
-                prefs[TABS_KEY] = Json.encodeToString(currentTabs)  // serialize the list of objects into a JSON string
+                prefs[tabsKey] = Json.encodeToString(currentTabs)  // serialize the list of objects into a JSON string
                 // Save the current tab ID
                 if (currentId != null) {
-                    prefs[CURRENT_TAB_ID_KEY] = currentId
+                    prefs[currentTabIdKey] = currentId
                 }
             }
         }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
@@ -441,7 +442,7 @@ fun UrlBar(
         ) {
             TextField(
                 value = textInput,
-                onValueChange = { textInput = it },
+                onValueChange = { newValue: String -> textInput = newValue },
                 modifier = Modifier.fillMaxSize(),
                 placeholder = { Text("Search or type URL") },
                 singleLine = true,
@@ -501,7 +502,7 @@ fun UrlBar(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    Icons.Default.ArrowForward,
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = "Forward",
                                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                     modifier = Modifier.size(18.dp)
@@ -548,9 +549,9 @@ fun TabView(
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f, fill = false) 
+                modifier = Modifier.weight(1f, fill = false)
             ) {
-                itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
+                itemsIndexed(items = tabs, key = { _: Int, tab: Tab -> tab.id }) { index: Int, tab: Tab ->
                     TabCard(
                         tab = tab,
                         isSelected = tab.id == currentTabId,
