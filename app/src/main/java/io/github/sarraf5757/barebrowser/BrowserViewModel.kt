@@ -2,18 +2,25 @@ package io.github.sarraf5757.barebrowser
 
 import android.app.Application
 import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import androidx.lifecycle.viewModelScope
 import java.net.URLEncoder
 import java.util.UUID
+
+// Singleton instance of DataStore
+private val Context.dataStore by preferencesDataStore(name = "bare_browser_prefs")
 
 /**
  * Data structure of a tab
@@ -29,12 +36,17 @@ data class Tab(
 )
 
 /**
- * ViewModel managing the state of the browser: the list of tabs, the active tab, and persistence (SharedPreferences)
+ * ViewModel managing the state of the browser: the list of tabs, the active tab, and persistence (DataStore)
  */
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = application.getSharedPreferences("bare_browser_prefs", Context.MODE_PRIVATE)
+    private val dataStore = application.dataStore
+    // Keys used to identify specific pieces of data in the file
+    private val TABS_KEY = stringPreferencesKey("tabs")
+    private val CURRENT_TAB_ID_KEY = stringPreferencesKey("currentTabId")
+
     private val _tabs = MutableStateFlow<List<Tab>>(emptyList())    // Internal state flow for tabs list
     val tabs: StateFlow<List<Tab>> = _tabs.asStateFlow()
+
     private val _currentTabId = MutableStateFlow<String?>(null)     // Internal state flow for the currently active tab ID
     val currentTabId: StateFlow<String?> = _currentTabId.asStateFlow()
     
@@ -43,59 +55,45 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
     
     /**
-     * Load tabs from SharedPreferences
+     * Load tabs from DataStore
      */
     private fun loadTabs() {
-        val tabsJson = prefs.getString("tabs", "[]")!!
-        val loadedTabs = Json.decodeFromString<List<Tab>>(tabsJson)
-        val savedCurrentId = prefs.getString("currentTabId", null)
-        
-        if (loadedTabs.isEmpty()) {
-            val initialTab = Tab()
-            _tabs.value = listOf(initialTab)
-            _currentTabId.value = initialTab.id
-            return
-        }
-
-        var activeTab: Tab? = null
-        for (tab in loadedTabs) {
-            if (tab.id == savedCurrentId) {
-                activeTab = tab
-                break
-            }
-        }
-
-        // If a non-blank tab was restored as activeTab, inject a fresh blank tab and set it as active
-        if (activeTab != null && activeTab.url != "about:blank" && activeTab.url.isNotBlank()) {
-            val newBlankTab = Tab(url = "about:blank")
-            val updatedTabs = mutableListOf<Tab>()
-            updatedTabs.addAll(loadedTabs)
-            updatedTabs.add(newBlankTab)
-
-            _tabs.value = updatedTabs
-            _currentTabId.value = newBlankTab.id
-        } else {
-            _tabs.value = loadedTabs
-            if (activeTab != null) {
-                _currentTabId.value = activeTab.id
+        // Launch a coroutine to read from disk without blocking the UI
+        viewModelScope.launch {
+            // Read the current snapshot of data
+            val prefs = dataStore.data.first()
+            val tabsJson = prefs[TABS_KEY] ?: "[]"
+            val loadedTabs = Json.decodeFromString<List<Tab>>(tabsJson)
+            val savedCurrentId = prefs[CURRENT_TAB_ID_KEY]
+            
+            // If no tabs were found, create an initial blank tab
+            if (loadedTabs.isEmpty()) {
+                val initialTab = Tab()
+                _tabs.value = listOf(initialTab)
+                _currentTabId.value = initialTab.id
+            } else {
+                // Restore the saved list and the active tab ID
+                _tabs.value = loadedTabs
+                _currentTabId.value = savedCurrentId ?: loadedTabs.last().id    // default to the last tab if the saved ID is missing/invalid
             }
         }
     }
     
     /**
-     * Helper - Persist the current state to SharedPreferences
+     * Helper - Persist the current state to DataStore
      */
     private fun saveTabs() {
         val currentTabs = _tabs.value
         val currentId = _currentTabId.value
         
-        // Offload JSON serialization to IO thread (to prevent UI stutters)
+        // Use the IO thread to write to the file to keep the UI smooth
         viewModelScope.launch(Dispatchers.IO) {
-            val json = Json.encodeToString(currentTabs)
-            prefs.edit().apply {
-                putString("tabs", json)
-                putString("currentTabId", currentId)
-                apply()
+            dataStore.edit { prefs ->
+                prefs[TABS_KEY] = Json.encodeToString(currentTabs)  // serialize the list of objects into a JSON string
+                // Save the current tab ID
+                if (currentId != null) {
+                    prefs[CURRENT_TAB_ID_KEY] = currentId
+                }
             }
         }
     }
@@ -118,11 +116,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val remainingTabs = currentTabs.filter { it.id != tabId }
         
         if (remainingTabs.isEmpty()) {
+            // Always keep at least one blank tab open
             val fallbackTab = Tab()
             _tabs.value = listOf(fallbackTab)
             _currentTabId.value = fallbackTab.id
         } else {
             _tabs.value = remainingTabs
+            // If we closed the active tab, move focus to the new last tab
             if (_currentTabId.value == tabId) {
                 _currentTabId.value = remainingTabs.last().id
             }
@@ -136,7 +136,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun selectTab(tabId: String) {
         val currentTabs = _tabs.value
         var tabExists = false
-        
+
         for (tab in currentTabs) {
             if (tab.id == tabId) {
                 tabExists = true
@@ -145,6 +145,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
         
         if (tabExists) {
+            // Create a new list with the updated timestamp to trigger UI refresh
             val updatedTabs = mutableListOf<Tab>()
             for (tab in currentTabs) {
                 if (tab.id == tabId) {
@@ -153,7 +154,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     updatedTabs.add(tab)
                 }
             }
-            
+
             _tabs.value = updatedTabs
             _currentTabId.value = tabId
             saveTabs()
@@ -174,7 +175,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 updatedTabs.add(tab)
             }
         }
-        
+
         _tabs.value = updatedTabs
         saveTabs()
     }
@@ -185,7 +186,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun updateTabUrl(tabId: String, newUrl: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
-        
+
         for (tab in currentTabs) {
             if (tab.id == tabId) {
                 updatedTabs.add(tab.copy(url = newUrl))
@@ -193,7 +194,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 updatedTabs.add(tab)
             }
         }
-        
+
         _tabs.value = updatedTabs
         saveTabs()
     }
@@ -204,7 +205,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun updateTabTitle(tabId: String, newTitle: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
-        
+
         for (tab in currentTabs) {
             if (tab.id == tabId) {
                 updatedTabs.add(tab.copy(title = newTitle))
@@ -212,7 +213,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 updatedTabs.add(tab)
             }
         }
-        
+
         _tabs.value = updatedTabs
         saveTabs()
     }
@@ -223,7 +224,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun updateThumbnail(tabId: String, base64: String) {
         val currentTabs = _tabs.value
         val updatedTabs = mutableListOf<Tab>()
-        
+
         for (tab in currentTabs) {
             if (tab.id == tabId) {
                 updatedTabs.add(tab.copy(thumbnailBase64 = base64))
@@ -231,7 +232,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 updatedTabs.add(tab)
             }
         }
-        
+
         _tabs.value = updatedTabs
         saveTabs()
     }
@@ -255,22 +256,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
      * otherwise, treat it as a Google search query
      */
     fun handleSearchOrUrl(tabId: String, query: String) {
-        val trimmedInput = query.trim()
-        if (trimmedInput.isEmpty()) return
+        val input = query.trim()
+        if (input.isEmpty()) return
         
-        // Check for a dot and no spaces, or starts with http/https
-        val isUrl = trimmedInput.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))
+        // Simple regex check: does it look like a domain name?
+        val isUrl = input.matches(Regex("^(https?://)?[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$"))
         
         val finalUrl = if (isUrl) {
-            if (!trimmedInput.startsWith("http://") && !trimmedInput.startsWith("https://")) {
-                "https://$trimmedInput"
-            } else {
-                trimmedInput
-            }
+            // Add https prefix if the user didn't type it
+            if (!input.startsWith("http")) "https://$input" else input
         } else {
-            "https://www.google.com/search?q=${URLEncoder.encode(trimmedInput, "UTF-8")}"
+            // Otherwise, perform a Google search
+            "https://www.google.com/search?q=${URLEncoder.encode(input, "UTF-8")}"
         }
-        
         updateTabUrl(tabId, finalUrl)
     }
     
@@ -281,10 +279,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun openUrlInNewTab(url: String) {
         val currentId = _currentTabId.value
         val currentTab = _tabs.value.find { it.id == currentId }
-        
+
         if (currentTab != null && currentTab.url == "about:blank") {
+            // Reuse the existing blank tab
             updateTabUrl(currentTab.id, url)
         } else {
+            // Open in a completely new tab
             val newTab = Tab(url = url)
             _tabs.value += newTab
             _currentTabId.value = newTab.id
