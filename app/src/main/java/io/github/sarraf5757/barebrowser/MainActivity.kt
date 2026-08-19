@@ -18,7 +18,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        io.github.sarraf5757.barebrowser.ui.AdBlocker.initialize(applicationContext)
         handleIntent(intent)
+
         enableEdgeToEdge()
         
         setContent {

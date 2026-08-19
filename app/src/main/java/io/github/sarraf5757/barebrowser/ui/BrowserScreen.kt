@@ -101,8 +101,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         }
     }
 
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. WebView Layer
+        // WebView Layer
         if (currentTab != null) {
             WebViewContainer(
                 tabs = tabs,
@@ -139,8 +140,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 }
             }
         }
-        
-        // 2. Floating URL Bar Layer (Bottom)
+
+
+        // Floating URL Bar Layer
         if (!isTabViewVisible && currentTab != null) {
             Box(
                 modifier = Modifier
@@ -191,7 +193,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             }
         }
 
-        // 3. Tab Grid Overlay Layer
+
+        // Tab Grid Overlay Layer
         AnimatedVisibility(
             visible = isTabViewVisible,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -311,6 +314,18 @@ fun WebViewContainer(
                                     super.onPageFinished(view, url)
                                     // Flush cookies
                                     android.webkit.CookieManager.getInstance().flush()
+                                    
+                                    // Inject CSS to hide ad elements
+                                    view?.evaluateJavascript(
+                                        """
+                                        (function() {
+                                            var style = document.createElement('style');
+                                            style.innerHTML = '.ad, .ads, .advert, .banner, .ad-banner, .ad_banner, [id^="ad-"], [class*="ad-"], [class*="banner"], iframe[src*="ads"], .ad-container, .ad-wrapper, .ad-slot, .adbox, .ad-box { display: none !important; }';
+                                            document.head.appendChild(style);
+                                        })();
+                                        """.trimIndent()
+                                    ) {}
+
                                     if (tab.id == currentTabId) {
                                         currentOnCanGoForwardUpdate(view?.canGoForward() == true)
                                     }
@@ -417,7 +432,7 @@ fun UrlBar(
             .height(IntrinsicSize.Min)
             .padding(horizontal = 16.dp)
     ) {
-        // Add Tab Button - Material You secondary style
+        // Add Tab Button
         Surface(
             shape = androidx.compose.foundation.shape.CircleShape,
             color = MaterialTheme.colorScheme.secondaryContainer,
@@ -433,7 +448,7 @@ fun UrlBar(
             }
         }
 
-        // Search Bar - Material You variant style
+        // Search Bar
         Surface(
             modifier = Modifier
                 .weight(1f)
