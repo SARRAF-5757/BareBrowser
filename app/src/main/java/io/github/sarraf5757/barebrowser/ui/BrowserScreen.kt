@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.sarraf5757.barebrowser.R
 import io.github.sarraf5757.barebrowser.BrowserViewModel
 import io.github.sarraf5757.barebrowser.Tab
 import kotlin.time.Duration.Companion.milliseconds
@@ -349,8 +350,6 @@ fun WebViewContainer(
                                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                     super.doUpdateVisitedHistory(view, url, isReload)
                                     if (url != null) {
-                                        // Update the tag so the 'update' block knows the WebView already has this URL
-                                        view?.tag = url
                                         currentOnUrlUpdate(tab.id, url)
                                     }
                                     if (tab.id == currentTabId) {
@@ -427,21 +426,20 @@ fun WebViewContainer(
                     }
                 }
 
-                // Update visibility and URL loading if URL changed externally
+                // Update visibility and URL loading if navigation was triggered by user
                 for (i in 0 until frameLayout.childCount) {
                     val child = frameLayout.getChildAt(i) as WebView
                     val tabId = child.tag as String
                     val tab = tabs.find { it.id == tabId }
                     
                     if (tab != null) {
-                        // Only load a URL if it wasn't the one the WebView just reported
-                        // Prevents navigation loops during redirects (ex. Google sign-in)
-                        val lastReportedUrl = (child.tag as? String)?.removeSuffix("/") ?: ""
-                        val targetUrl = tab.url.removeSuffix("/")
+                        // Check if a new navigation was explicitly triggered by the user
+                        // or if this is a new WebView that hasn't loaded its initial URL yet.
+                        val lastProcessedTrigger = child.getTag(R.id.nav_trigger) as? Int
                         
-                        if (targetUrl != lastReportedUrl && targetUrl != "about:blank") {
+                        if (lastProcessedTrigger == null || tab.navigationTrigger > lastProcessedTrigger) {
                             child.loadUrl(tab.url)
-                            child.tag = tab.url
+                            child.setTag(R.id.nav_trigger, tab.navigationTrigger)
                         }
                         
                         if (tabId == currentTabId) {

@@ -31,7 +31,8 @@ data class Tab(
     val title: String? = null,
     val isPinned: Boolean = false,
     val lastAccessed: Long = System.currentTimeMillis(),
-    val thumbnailBase64: String? = null
+    val thumbnailBase64: String? = null,
+    val navigationTrigger: Int = 0 // Incremented when user intends to navigate to a new site
 )
 
 /**
@@ -101,7 +102,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
      * Create a new blank tab and sets it as the active tab
      */
     fun createNewTab() {
-        val newTab = Tab()
+        val newTab = Tab(navigationTrigger = 1) // Set trigger to 1 for initial load
         _tabs.value += newTab
         _currentTabId.value = newTab.id
         saveTabs()
@@ -268,7 +269,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             // Otherwise, perform a Google search
             "https://www.google.com/search?q=${URLEncoder.encode(input, "UTF-8")}"
         }
-        updateTabUrl(tabId, finalUrl)
+
+        // Use a loop to update the specific tab and increment its navigation trigger
+        val currentTabs = _tabs.value
+        val updatedTabs = mutableListOf<Tab>()
+        for (tab in currentTabs) {
+            if (tab.id == tabId) {
+                // Increment navigationTrigger to signal the UI to perform a fresh load
+                updatedTabs.add(tab.copy(url = finalUrl, navigationTrigger = tab.navigationTrigger + 1))
+            } else {
+                updatedTabs.add(tab)
+            }
+        }
+        _tabs.value = updatedTabs
+        saveTabs()
     }
     
     /**
@@ -280,11 +294,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentTab = _tabs.value.find { it.id == currentId }
 
         if (currentTab != null && currentTab.url == "about:blank") {
-            // Reuse the existing blank tab
-            updateTabUrl(currentTab.id, url)
+            // Reuse the existing blank tab and increment its trigger
+            val currentTabs = _tabs.value
+            val updatedTabs = mutableListOf<Tab>()
+            for (tab in currentTabs) {
+                if (tab.id == currentId) {
+                    updatedTabs.add(tab.copy(url = url, navigationTrigger = tab.navigationTrigger + 1))
+                } else {
+                    updatedTabs.add(tab)
+                }
+            }
+            _tabs.value = updatedTabs
+            saveTabs()
         } else {
-            // Open in a completely new tab
-            val newTab = Tab(url = url)
+            // Open in a completely new tab with initial trigger
+            val newTab = Tab(url = url, navigationTrigger = 1)
             _tabs.value += newTab
             _currentTabId.value = newTab.id
             saveTabs()
