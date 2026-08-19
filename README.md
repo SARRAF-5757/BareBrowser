@@ -1,10 +1,19 @@
 # Bare Browser
 
+<br>
 <p align="center">
-  <img src="app/src/main/res/BareBrowser.png" alt="App Icon" width="40%" />
+  <img src="app/src/main/res/external-images/BareBrowser.png" alt="App Icon" width="30%" />
 </p>
+<br>
 
 Bare Browser is a super lightweight (almost to a fault) browser. It's just android's WebView wrapped in some bare minimum Kotlin to provide basic UI and web browsing features.
+
+<img src="app/src/main/res/external-images/1.png" alt="App Icon" width="30%" />
+<img src="app/src/main/res/external-images/2.png" alt="App Icon" width="30%" />
+<img src="app/src/main/res/external-images/5.png" alt="App Icon" width="30%" />
+<img src="app/src/main/res/external-images/3.png" alt="App Icon" width="30%" />
+<img src="app/src/main/res/external-images/4.png" alt="App Icon" width="30%" />
+
 
 ## Features
 - **One-Hand Operation Friendly Design**: Everything in the UI, starting from the URL bar to the tabs is stacked towards the bottom edge of the screen for easier reach- especially for bigger phones.
