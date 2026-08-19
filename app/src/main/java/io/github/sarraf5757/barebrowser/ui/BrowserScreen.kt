@@ -55,6 +55,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     var canGoForward by remember(currentTabId) { mutableStateOf(false) }
     var showLastPageToast by remember { mutableStateOf(false) }
     
+    // State for handling form resubmission dialogs
+    var resubmissionMessages by remember { mutableStateOf<Pair<android.os.Message, android.os.Message>?>(null) }
+    
     LaunchedEffect(showLastPageToast) {
         if (showLastPageToast) {
             kotlinx.coroutines.delay(2500.milliseconds)
@@ -115,6 +118,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 onThemeColorUpdate = { color -> themeColor = color },
                 onCanGoForwardUpdate = { canGoForward = it },
                 onThumbnailCaptured = { tabId, thumb -> viewModel.updateThumbnail(tabId, thumb) },
+                onFormResubmissionRequest = { dont, resend -> resubmissionMessages = Pair(dont, resend) },
                 frameLayoutRef = frameLayoutRef,
                 onFrameLayoutCreated = { frameLayoutRef = it },
                 modifier = Modifier
@@ -218,6 +222,34 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             )
         }
     }
+
+    // Form Resubmission Dialog
+    if (resubmissionMessages != null) {
+        AlertDialog(
+            onDismissRequest = { 
+                resubmissionMessages?.first?.sendToTarget() // dontResend
+                resubmissionMessages = null 
+            },
+            title = { Text("Confirm Form Resubmission") },
+            text = { Text("The page you're looking for used information that you entered. Returning to that page might cause any action you took to be repeated. Do you want to continue?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    resubmissionMessages?.second?.sendToTarget() // resend
+                    resubmissionMessages = null
+                }) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    resubmissionMessages?.first?.sendToTarget() // dontResend
+                    resubmissionMessages = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 
@@ -233,6 +265,7 @@ fun WebViewContainer(
     onThemeColorUpdate: (Color?) -> Unit,
     onCanGoForwardUpdate: (Boolean) -> Unit,
     onThumbnailCaptured: (String, String) -> Unit,
+    onFormResubmissionRequest: (android.os.Message, android.os.Message) -> Unit,
     frameLayoutRef: android.widget.FrameLayout?,
     onFrameLayoutCreated: (android.widget.FrameLayout) -> Unit,
     modifier: Modifier = Modifier
@@ -242,6 +275,7 @@ fun WebViewContainer(
     val upgradedUrls = remember { mutableSetOf<String>() }
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
     val currentOnCanGoForwardUpdate by rememberUpdatedState(onCanGoForwardUpdate)
+    val currentOnFormResubmission by rememberUpdatedState(onFormResubmissionRequest)
     
     LaunchedEffect(isTabViewVisible) {
         if (isTabViewVisible && currentTabId != null) {
@@ -296,7 +330,6 @@ fun WebViewContainer(
                                     threatType: Int,
                                     callback: android.webkit.SafeBrowsingResponse?
                                 ) {
-                                    // Explicitly command the WebView to show the red Safe Browsing interstitial
                                     callback?.showInterstitial(true)
                                 }
 
@@ -304,6 +337,22 @@ fun WebViewContainer(
                                     val url = request?.url ?: return false
                                     val urlString = url.toString()
                                     
+                                    // Handle non-web protocols (intent://, mailto:, etc.)
+                                    if (urlString.startsWith("intent://") || 
+                                        urlString.startsWith("mailto:") || 
+                                        urlString.startsWith("tel:") || 
+                                        urlString.startsWith("sms:")) {
+                                        try {
+                                            val intent = android.content.Intent.parseUri(urlString, android.content.Intent.URI_INTENT_SCHEME)
+                                            intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                                            view?.context?.startActivity(intent)
+                                            return true
+                                        } catch (_: Exception) {
+                                            // Fallback if app not found or parsing fails
+                                        }
+                                    }
+
+                                    // HTTPS Everywhere logic
                                     if (url.scheme == "http" && request.isForMainFrame) {
                                         if (!upgradedUrls.contains(urlString)) {
                                             val httpsUrl = urlString.replaceFirst("http://", "https://")
@@ -312,6 +361,7 @@ fun WebViewContainer(
                                             return true
                                         }
                                     }
+
                                     return false
                                 }
 
@@ -340,6 +390,14 @@ fun WebViewContainer(
                                     super.onReceivedError(view, request, error)
                                 }
 
+                                override fun onFormResubmission(view: WebView?, dontResend: android.os.Message?, resend: android.os.Message?) {
+                                    if (dontResend != null && resend != null) {
+                                        currentOnFormResubmission(dontResend, resend)
+                                    } else {
+                                        super.onFormResubmission(view, dontResend, resend)
+                                    }
+                                }
+
                                 override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
                                     if (AdBlocker.shouldBlock(request)) {
                                         return AdBlocker.createEmptyResponse()
@@ -363,7 +421,6 @@ fun WebViewContainer(
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    // Flush cookies
                                     android.webkit.CookieManager.getInstance().flush()
                                     
                                     // Inject CSS to hide ad elements
