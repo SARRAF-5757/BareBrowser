@@ -238,6 +238,7 @@ fun WebViewContainer(
 ) {
     val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
     val currentOnTitleUpdate by rememberUpdatedState(onTitleUpdate)
+    val upgradedUrls = remember { mutableSetOf<String>() }
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
     val currentOnCanGoForwardUpdate by rememberUpdatedState(onCanGoForwardUpdate)
     
@@ -288,6 +289,45 @@ fun WebViewContainer(
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                    val url = request?.url ?: return false
+                                    val urlString = url.toString()
+                                    
+                                    if (url.scheme == "http" && request.isForMainFrame) {
+                                        if (!upgradedUrls.contains(urlString)) {
+                                            val httpsUrl = urlString.replaceFirst("http://", "https://")
+                                            upgradedUrls.add(urlString)
+                                            view?.loadUrl(httpsUrl)
+                                            return true
+                                        }
+                                    }
+                                    return false
+                                }
+
+                                override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
+                                    val failedUrl = error?.url ?: return
+                                    val httpUrl = failedUrl.replaceFirst("https://", "http://")
+                                    if (upgradedUrls.contains(httpUrl)) {
+                                        // upgraded HTTP URL to HTTPS failed SSL. Fallback to HTTP
+                                        handler?.cancel()
+                                        view?.loadUrl(httpUrl)
+                                    } else {
+                                        super.onReceivedSslError(view, handler, error)
+                                    }
+                                }
+
+                                override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                                    if (request?.isForMainFrame == true) {
+                                        val failedUrl = request.url?.toString() ?: ""
+                                        val httpUrl = failedUrl.replaceFirst("https://", "http://")
+                                        if (upgradedUrls.contains(httpUrl)) {
+                                            // Upgrade to HTTPS connection refused. Fallback to HTTP.
+                                            view?.loadUrl(httpUrl)
+                                            return
+                                        }
+                                    }
+                                    super.onReceivedError(view, request, error)
+                                }
 
                                 override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
                                     if (AdBlocker.shouldBlock(request)) {
@@ -679,6 +719,8 @@ fun TabCard(
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
+            val displayTitle = if (tab.url == "about:blank") "New tab" else if (!tab.title.isNullOrBlank()) tab.title else tab.url
+
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
@@ -688,7 +730,7 @@ fun TabCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (!tab.title.isNullOrBlank()) tab.title else tab.url,
+                        text = displayTitle,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
@@ -720,16 +762,17 @@ fun TabCard(
                         }
                     }
                     val bitmap = imageBitmap
-                    if (bitmap != null) {
+
+                    if (bitmap != null && tab.url != "about:blank") {
                         androidx.compose.foundation.Image(
                             bitmap = bitmap,
                             contentDescription = "Tab Preview",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop
                         )
-                    } else {
+                    } else if (tab.url != "about:blank") {
                         Text(
-                            text = if (!tab.title.isNullOrBlank()) tab.title else tab.url,
+                            text = displayTitle,
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 3,
                             color = MaterialTheme.colorScheme.onBackground
