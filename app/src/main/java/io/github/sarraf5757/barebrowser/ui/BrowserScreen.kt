@@ -348,6 +348,11 @@ fun WebViewContainer(
 
                                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                     super.doUpdateVisitedHistory(view, url, isReload)
+                                    if (url != null) {
+                                        // Update the tag so the 'update' block knows the WebView already has this URL
+                                        view?.tag = url
+                                        currentOnUrlUpdate(tab.id, url)
+                                    }
                                     if (tab.id == currentTabId) {
                                         currentOnCanGoForwardUpdate(view?.canGoForward() == true)
                                     }
@@ -355,9 +360,6 @@ fun WebViewContainer(
 
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
-                                    if (url != null) {
-                                        currentOnUrlUpdate(tab.id, url)
-                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -432,9 +434,14 @@ fun WebViewContainer(
                     val tab = tabs.find { it.id == tabId }
                     
                     if (tab != null) {
-                        // Check if URL changed externally (e.g. from URL bar search)
-                        if (child.url != tab.url && child.url != "${tab.url}/") {
+                        // Only load a URL if it wasn't the one the WebView just reported
+                        // Prevents navigation loops during redirects (ex. Google sign-in)
+                        val lastReportedUrl = (child.tag as? String)?.removeSuffix("/") ?: ""
+                        val targetUrl = tab.url.removeSuffix("/")
+                        
+                        if (targetUrl != lastReportedUrl && targetUrl != "about:blank") {
                             child.loadUrl(tab.url)
+                            child.tag = tab.url
                         }
                         
                         if (tabId == currentTabId) {
