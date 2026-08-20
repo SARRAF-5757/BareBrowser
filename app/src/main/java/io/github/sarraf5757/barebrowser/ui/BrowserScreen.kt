@@ -38,9 +38,10 @@ import io.github.sarraf5757.barebrowser.BrowserViewModel
 import io.github.sarraf5757.barebrowser.Tab
 import kotlin.time.Duration.Companion.milliseconds
 
-/**
- * Main screen for the browser [WebView, URL bar, & Tab View]
- */
+
+// ====================================================
+// 1. MAIN BROWSER SCREEN (LAYOUT & DIALOGS)
+// ====================================================
 @Composable
 fun BrowserScreen(viewModel: BrowserViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -107,7 +108,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // WebView Layer
+        // --- A. WebView Layer (The actual webpage) ---
         if (currentTab != null) {
             WebViewContainer(
                 tabs = tabs,
@@ -147,7 +148,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         }
 
 
-        // Floating URL Bar Layer
+        // --- B. Floating URL Bar Layer (Bottom Search Bar) ---
         if (!isTabViewVisible && currentTab != null) {
             Box(
                 modifier = Modifier
@@ -199,7 +200,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         }
 
 
-        // Tab Grid Overlay Layer
+        // --- C. Tab Grid Overlay Layer (Displays all open tabs) ---
         AnimatedVisibility(
             visible = isTabViewVisible,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -223,7 +224,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         }
     }
 
-    // Form Resubmission Dialog
+    // --- D. Form Resubmission Dialog ---
     if (resubmissionMessages != null) {
         AlertDialog(
             onDismissRequest = { 
@@ -253,6 +254,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 }
 
 
+// ====================================================
+// 2. WEBVIEW CONTAINER (NATIVE ANDROID VIEW INTEROP)
+// ====================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -270,13 +274,35 @@ fun WebViewContainer(
     onFrameLayoutCreated: (android.widget.FrameLayout) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // --- State Hoisting & Activity Result Launchers ---
     val currentOnUrlUpdate by rememberUpdatedState(onUrlUpdate)
     val currentOnTitleUpdate by rememberUpdatedState(onTitleUpdate)
     val upgradedUrls = remember { mutableSetOf<String>() }
     val currentOnThemeColorUpdate by rememberUpdatedState(onThemeColorUpdate)
     val currentOnCanGoForwardUpdate by rememberUpdatedState(onCanGoForwardUpdate)
     val currentOnFormResubmission by rememberUpdatedState(onFormResubmissionRequest)
+    var fileChooserCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
+    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data
+            val uris = if (data?.clipData != null) {
+                val count = data.clipData!!.itemCount
+                Array(count) { i -> data.clipData!!.getItemAt(i).uri }
+            } else if (data?.data != null) {
+                arrayOf(data.data!!)
+            } else {
+                null
+            }
+            fileChooserCallback?.onReceiveValue(uris)
+        } else {
+            fileChooserCallback?.onReceiveValue(null)
+        }
+        fileChooserCallback = null
+    }
     
+    // --- Effect: Capture Thumbnail when opening Tab View ---
     LaunchedEffect(isTabViewVisible) {
         if (isTabViewVisible && currentTabId != null) {
             val activeWebView = frameLayoutRef?.findViewWithTag<WebView>(currentTabId)
@@ -289,6 +315,7 @@ fun WebViewContainer(
 
     Box(modifier = modifier) {
         AndroidView(
+            // --- Native View Initialization ---
             factory = { context ->
                 android.widget.FrameLayout(context).apply {
                     layoutParams = android.view.ViewGroup.LayoutParams(
@@ -305,6 +332,7 @@ fun WebViewContainer(
                     existingTags.add(child.tag as String)
                 }
 
+                // --- WebView Creation & Settings ---
                 // Create new WebViews for any tabs that don't have one
                 for (tab in tabs) {
                     if (!existingTags.contains(tab.id)) {
@@ -323,6 +351,31 @@ fun WebViewContainer(
                             android.webkit.CookieManager.getInstance().setAcceptCookie(true)
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             
+                            setDownloadListener { downloadUrl, userAgent, contentDisposition, mimeType, contentLength ->
+                                try {
+                                    val request = android.app.DownloadManager.Request(android.net.Uri.parse(downloadUrl)).apply {
+                                        setMimeType(mimeType)
+                                        val cookie = android.webkit.CookieManager.getInstance().getCookie(downloadUrl)
+                                        addRequestHeader("Cookie", cookie)
+                                        addRequestHeader("User-Agent", userAgent)
+                                        setDescription("Downloading file...")
+                                        
+                                        val filename = android.webkit.URLUtil.guessFileName(downloadUrl, contentDisposition, mimeType)
+                                        setTitle(filename)
+                                        
+                                        setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                                    }
+                                    val downloadManager = frameLayout.context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                                    downloadManager.enqueue(request)
+                                    android.widget.Toast.makeText(frameLayout.context, "Download started", android.widget.Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    android.util.Log.e("BrowserScreen", "Download failed", e)
+                                    android.widget.Toast.makeText(frameLayout.context, "Failed to start download", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            
+                            // --- WebViewClient: Handles Navigation, Errors, and AdBlocking ---
                             webViewClient = object : WebViewClient() {
                                 override fun onSafeBrowsingHit(
                                     view: WebView?,
@@ -455,12 +508,33 @@ fun WebViewContainer(
                                     }
                                 }
                             }
+                            // --- WebChromeClient: Handles Titles and File Choosers ---
                             webChromeClient = object : WebChromeClient() {
                                 override fun onReceivedTitle(view: WebView?, title: String?) {
                                     super.onReceivedTitle(view, title)
                                     if (title != null) {
                                         currentOnTitleUpdate(tab.id, title)
                                     }
+                                }
+                                
+                                override fun onShowFileChooser(
+                                    webView: WebView?,
+                                    filePathCallback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
+                                    fileChooserParams: FileChooserParams?
+                                ): Boolean {
+                                    fileChooserCallback = filePathCallback
+                                    val intent = fileChooserParams?.createIntent() ?: android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                                        addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                                        type = "*/*"
+                                    }
+                                    try {
+                                        filePickerLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        fileChooserCallback?.onReceiveValue(null)
+                                        fileChooserCallback = null
+                                        return false
+                                    }
+                                    return true
                                 }
                             }
                             loadUrl(tab.url)
@@ -469,6 +543,7 @@ fun WebViewContainer(
                     }
                 }
 
+                // --- WebView Cleanup ---
                 // Remove WebViews for tabs that were closed
                 val currentTabIds = tabs.map { it.id }.toSet()
                 for (i in frameLayout.childCount - 1 downTo 0) {
@@ -483,6 +558,7 @@ fun WebViewContainer(
                     }
                 }
 
+                // --- WebView State Synchronization (Visibility & URL Loading) ---
                 // Update visibility and URL loading if navigation was triggered by user
                 for (i in 0 until frameLayout.childCount) {
                     val child = frameLayout.getChildAt(i) as WebView
@@ -523,6 +599,9 @@ fun WebViewContainer(
 }
 
 
+// ====================================================
+// 3. URL BAR COMPONENT
+// ====================================================
 @Composable
 fun UrlBar(
     currentUrl: String,
@@ -653,6 +732,9 @@ fun UrlBar(
 }
 
 
+// ====================================================
+// 4. TAB VIEW GRID COMPONENT
+// ====================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabView(
@@ -717,6 +799,9 @@ fun TabView(
 }
 
 
+// ====================================================
+// 5. INDIVIDUAL TAB CARD COMPONENT
+// ====================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabCard(
